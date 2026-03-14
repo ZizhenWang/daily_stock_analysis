@@ -60,12 +60,12 @@ def _escape_md(text: str) -> str:
 def _clean_sniper_value(val: Any) -> str:
     """Format sniper point value for display (strip label prefixes)."""
     if val is None:
-        return "N/A"
+        return "模型未给出"
     if isinstance(val, (int, float)):
-        return str(val)
+        return _format_significant_digits(val)
     s = str(val).strip() if val else ""
-    if not s or s == "N/A":
-        return s or "N/A"
+    if not s or s in {"N/A", "-", "—", "None"}:
+        return "模型未给出"
     prefixes = [
         "理想买入点：", "次优买入点：", "止损位：", "目标位：",
         "理想买入点:", "次优买入点:", "止损位:", "目标位:",
@@ -74,6 +74,28 @@ def _clean_sniper_value(val: Any) -> str:
         if s.startswith(prefix):
             return s[len(prefix):]
     return s
+
+
+def _format_significant_digits(value: Any, digits: int = 3) -> str:
+    """Format numeric-looking values with significant digits."""
+    if value is None:
+        return "N/A"
+    if isinstance(value, str):
+        value = value.strip()
+        if not value or value in {"N/A", "-", "—", "None"}:
+            return "N/A"
+        try:
+            value = float(value)
+        except (TypeError, ValueError):
+            return value
+    if isinstance(value, bool):
+        return str(value)
+    if isinstance(value, (int, float)):
+        try:
+            return format(float(value), f".{digits}g")
+        except (TypeError, ValueError):
+            return str(value)
+    return str(value)
 
 
 def _resolve_templates_dir() -> Path:
@@ -157,6 +179,7 @@ def render(
         "hold_count": hold_count,
         "escape_md": _escape_md,
         "clean_sniper": _clean_sniper_value,
+        "fmt_sig": _format_significant_digits,
         "failed_checks": failed_checks,
         "history_by_code": {},
     }

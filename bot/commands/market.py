@@ -96,8 +96,10 @@ class MarketCommand(BotCommand):
 
             # 初始化 AI 分析器
             analyzer = None
-            if config.gemini_api_key or config.openai_api_key:
+            if config.llm_backend == "codex" or config.gemini_api_key or config.openai_api_key:
                 analyzer = GeminiAnalyzer()
+                if not analyzer.is_available():
+                    analyzer = None
 
             # 读取配置中的市场区域，与定时任务/CLI 保持一致
             region = getattr(config, 'market_review_region', 'cn')

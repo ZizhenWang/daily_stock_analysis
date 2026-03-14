@@ -1,0 +1,23 @@
+[Unit]
+Description=Daily Stock Analysis service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=<APP_USER>
+Group=<APP_USER>
+WorkingDirectory=<APP_DIR>
+Environment=HOST=0.0.0.0
+Environment=PORT=8000
+Environment=WEBUI_AUTO_BUILD=false
+Environment=PYTHONUNBUFFERED=1
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+ExecStart=<APP_DIR>/scripts/start-server-ubuntu.sh --schedule
+Restart=always
+RestartSec=30
+TimeoutStartSec=300
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

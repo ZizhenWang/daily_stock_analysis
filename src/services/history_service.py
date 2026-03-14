@@ -632,7 +632,7 @@ class HistoryService:
             if trend_data:
                 is_bullish = "✅ 是" if trend_data.get('is_bullish', False) else "❌ 否"
                 report_lines.extend([
-                    f"**均线排列**: {trend_data.get('ma_alignment', 'N/A')} | 多头排列: {is_bullish} | 趋势强度: {trend_data.get('trend_score', 'N/A')}/100",
+                    f"**均线排列**: {trend_data.get('ma_alignment', 'N/A')} | 多头排列: {is_bullish} | 趋势强度: {self._safe_format_number(trend_data.get('trend_score', 'N/A'), '.3g')}/100",
                     "",
                 ])
             # 价格位置
@@ -642,19 +642,19 @@ class HistoryService:
                 report_lines.extend([
                     "| 价格指标 | 数值 |",
                     "|---------|------|",
-                    f"| 当前价 | {price_data.get('current_price', 'N/A')} |",
-                    f"| MA5 | {price_data.get('ma5', 'N/A')} |",
-                    f"| MA10 | {price_data.get('ma10', 'N/A')} |",
-                    f"| MA20 | {price_data.get('ma20', 'N/A')} |",
-                    f"| 乖离率(MA5) | {price_data.get('bias_ma5', 'N/A')}% {bias_emoji}{bias_status} |",
-                    f"| 支撑位 | {price_data.get('support_level', 'N/A')} |",
-                    f"| 压力位 | {price_data.get('resistance_level', 'N/A')} |",
+                    f"| 当前价 | {self._safe_format_number(price_data.get('current_price', 'N/A'), '.3g')} |",
+                    f"| MA5 | {self._safe_format_number(price_data.get('ma5', 'N/A'), '.3g')} |",
+                    f"| MA10 | {self._safe_format_number(price_data.get('ma10', 'N/A'), '.3g')} |",
+                    f"| MA20 | {self._safe_format_number(price_data.get('ma20', 'N/A'), '.3g')} |",
+                    f"| 乖离率(MA5) | {self._safe_format_number(price_data.get('bias_ma5', 'N/A'), '.3g')}% {bias_emoji}{bias_status} |",
+                    f"| 支撑位 | {self._safe_format_number(price_data.get('support_level', 'N/A'), '.3g')} |",
+                    f"| 压力位 | {self._safe_format_number(price_data.get('resistance_level', 'N/A'), '.3g')} |",
                     "",
                 ])
             # 量能分析
             if vol_data:
                 report_lines.extend([
-                    f"**量能**: 量比 {vol_data.get('volume_ratio', 'N/A')} ({vol_data.get('volume_status', '')}) | 换手率 {vol_data.get('turnover_rate', 'N/A')}%",
+                    f"**量能**: 量比 {self._safe_format_number(vol_data.get('volume_ratio', 'N/A'), '.3g')} ({vol_data.get('volume_status', '')}) | 换手率 {self._safe_format_number(vol_data.get('turnover_rate', 'N/A'), '.3g')}%",
                     f"💡 *{vol_data.get('volume_meaning', '')}*",
                     "",
                 ])
@@ -663,7 +663,7 @@ class HistoryService:
                 chip_health = chip_data.get('chip_health', 'N/A')
                 chip_emoji = "✅" if chip_health == "健康" else ("⚠️" if chip_health == "一般" else "🚨")
                 report_lines.extend([
-                    f"**筹码**: 获利比例 {chip_data.get('profit_ratio', 'N/A')} | 平均成本 {chip_data.get('avg_cost', 'N/A')} | 集中度 {chip_data.get('concentration', 'N/A')} {chip_emoji}{chip_health}",
+                    f"**筹码**: 获利比例 {self._safe_format_number(chip_data.get('profit_ratio', 'N/A'), '.3g')} | 平均成本 {self._safe_format_number(chip_data.get('avg_cost', 'N/A'), '.3g')} | 集中度 {self._safe_format_number(chip_data.get('concentration', 'N/A'), '.3g')} {chip_emoji}{chip_health}",
                     "",
                 ])
 
@@ -761,10 +761,10 @@ class HistoryService:
     def _clean_sniper_value(value: Any) -> str:
         """Clean sniper point value for display."""
         if value is None:
-            return "N/A"
+            return "模型未给出"
         text = str(value).strip()
         if not text or text in ("-", "—", "N/A", "None"):
-            return "N/A"
+            return "模型未给出"
         return text
 
     def _get_signal_level(self, result: AnalysisResult) -> Tuple[str, str, str]:

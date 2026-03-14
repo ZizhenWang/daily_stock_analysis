@@ -13,13 +13,17 @@ from __future__ import annotations
 import base64
 import json
 import logging
+import os
 import random
 import re
+import tempfile
 import time
+from pathlib import Path
 from typing import List, Optional, Tuple
 
 import litellm
 
+from src.codex_backend import CodexBackend, CodexBackendError
 from src.config import Config, get_config
 
 logger = logging.getLogger(__name__)
@@ -301,9 +305,13 @@ def extract_stock_codes_from_image(
 
     _verify_image_magic_bytes(image_bytes, mime_type)
 
+    cfg = get_config()
+    if getattr(cfg, "llm_backend", "") == "codex":
+        return _extract_with_codex(image_bytes, mime_type, cfg)
+
     image_b64 = base64.b64encode(image_bytes).decode("ascii")
     model = _resolve_vision_model()
-    keys = _get_api_keys_for_model(model, get_config())
+    keys = _get_api_keys_for_model(model, cfg)
 
     last_error: Optional[Exception] = None
     for attempt in range(3):
@@ -327,3 +335,82 @@ def extract_stock_codes_from_image(
     raise ValueError(
         f"Vision API 调用失败，请检查 API Key 与网络: {last_error}"
     ) from last_error
+
+
+def _extract_with_codex(
+    image_bytes: bytes,
+    mime_type: str,
+    cfg: Config,
+) -> Tuple[List[Tuple[str, Optional[str], str]], str]:
+    """Use Codex CLI image input as the Vision backend."""
+    backend = CodexBackend(cfg)
+    if not backend.is_available():
+        raise ValueError("Codex CLI 不可用，无法执行图片识别")
+
+    schema = {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["items"],
+        "properties": {
+            "items": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": ["code", "confidence"],
+                    "properties": {
+                        "code": {"type": "string", "minLength": 1},
+                        "name": {"type": "string"},
+                        "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
+                    },
+                },
+            },
+        },
+    }
+
+    suffix_map = {
+        "image/jpeg": ".jpg",
+        "image/png": ".png",
+        "image/webp": ".webp",
+        "image/gif": ".gif",
+    }
+    suffix = suffix_map.get(mime_type, ".img")
+
+    with tempfile.NamedTemporaryFile(prefix="codex-image-", suffix=suffix, delete=False) as handle:
+        handle.write(image_bytes)
+        temp_path = Path(handle.name)
+
+    try:
+        prompt = (
+            EXTRACT_PROMPT
+            + "\n\n请严格返回符合给定 schema 的对象，顶层字段为 items。"
+        )
+        result = backend.run_structured(prompt, schema, image_paths=[temp_path])
+        items_payload = result.payload.get("items", [])
+        raw_text = json.dumps(result.payload, ensure_ascii=False)
+        normalized: List[Tuple[str, Optional[str], str]] = []
+        seen: set[str] = set()
+        for item in items_payload:
+            if not isinstance(item, dict):
+                continue
+            code = _normalize_code(str(item.get("code", "")))
+            if not code or code in seen or code in _FAKE_CODES:
+                continue
+            seen.add(code)
+            name = item.get("name")
+            if not isinstance(name, str) or not name.strip():
+                name = None
+            else:
+                name = name.strip()
+            confidence = str(item.get("confidence", "medium")).lower()
+            if confidence not in _VALID_CONFIDENCE:
+                confidence = "medium"
+            normalized.append((code, name, confidence))
+        return normalized, raw_text
+    except CodexBackendError as exc:
+        raise ValueError(f"Codex 图片识别失败: {exc}") from exc
+    finally:
+        try:
+            os.unlink(temp_path)
+        except OSError:
+            pass

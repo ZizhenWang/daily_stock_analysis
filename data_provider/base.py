@@ -652,12 +652,12 @@ class DataFetcherManager:
         初始化默认数据源列表
 
         优先级动态调整逻辑：
-        - 如果配置了 TUSHARE_TOKEN：Tushare 优先级提升为 0（最高）
+        - 如果配置了 TUSHARE_TOKEN：Tushare 作为兜底数据源启用（默认 Priority 4，可通过 TUSHARE_PRIORITY 覆盖）
         - 否则按默认优先级：
           0. EfinanceFetcher (Priority 0) - 最高优先级
           1. AkshareFetcher (Priority 1)
           2. PytdxFetcher (Priority 2) - 通达信
-          2. TushareFetcher (Priority 2)
+          4. TushareFetcher (Priority 4, fallback)
           3. BaostockFetcher (Priority 3)
           4. YfinanceFetcher (Priority 4)
         """
@@ -670,7 +670,7 @@ class DataFetcherManager:
         # 创建所有数据源实例（优先级在各 Fetcher 的 __init__ 中确定）
         efinance = EfinanceFetcher()
         akshare = AkshareFetcher()
-        tushare = TushareFetcher()  # 会根据 Token 配置自动调整优先级
+        tushare = TushareFetcher()  # 默认作为 fallback，可通过 TUSHARE_PRIORITY 调整
         pytdx = PytdxFetcher()      # 通达信数据源（可配 PYTDX_HOST/PYTDX_PORT）
         baostock = BaostockFetcher()
         yfinance = YfinanceFetcher()
@@ -685,7 +685,7 @@ class DataFetcherManager:
             yfinance,
         ]
 
-        # 按优先级排序（Tushare 如果配置了 Token 且初始化成功，优先级为 0）
+        # 按优先级排序（Tushare 默认作为 fallback）
         self._fetchers.sort(key=lambda f: f.priority)
 
         # 构建优先级说明

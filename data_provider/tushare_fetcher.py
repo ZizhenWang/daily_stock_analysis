@@ -90,7 +90,7 @@ class TushareFetcher(BaseFetcher):
     """
     
     name = "TushareFetcher"
-    priority = int(os.getenv("TUSHARE_PRIORITY", "2"))  # 默认优先级，会在 __init__ 中根据配置动态调整
+    priority = int(os.getenv("TUSHARE_PRIORITY", "4"))  # 默认兜底优先级，会在 __init__ 中根据配置动态调整
 
     def __init__(self, rate_limit_per_minute: int = 80):
         """
@@ -124,12 +124,15 @@ class TushareFetcher(BaseFetcher):
         
         try:
             import tushare as ts
-            
-            # Set Token
-            ts.set_token(config.tushare_token)
-            
-            # Get API instance
-            self._api = ts.pro_api()
+
+            # Avoid ts.set_token(): tushare writes ~/tk.csv, which breaks in
+            # sandboxed/cloud runtimes. Prefer explicit token passing and keep
+            # env vars in-process for any internal helpers that consult them.
+            os.environ["TUSHARE_TOKEN"] = config.tushare_token
+            os.environ["TS_TOKEN"] = config.tushare_token
+
+            # Get API instance without touching the user's home directory.
+            self._api = ts.pro_api(token=config.tushare_token)
             
             # Fix: tushare SDK 1.4.x hardcodes api.waditu.com/dataapi which may
             # be unavailable (503). Monkey-patch the query method to use the
@@ -183,21 +186,24 @@ class TushareFetcher(BaseFetcher):
         根据 Token 配置和 API 初始化状态确定优先级
 
         策略：
-        - Token 配置且 API 初始化成功：优先级 -1（绝对最高，优于 efinance）
-        - 其他情况：优先级 2（默认）
+        - Token 配置且 API 初始化成功：使用 TUSHARE_PRIORITY 或默认兜底优先级 4
+        - 其他情况：优先级 4（默认兜底）
 
         Returns:
             优先级数字（0=最高，数字越大优先级越低）
         """
         config = get_config()
 
+        configured_priority = int(os.getenv("TUSHARE_PRIORITY", "4"))
         if config.tushare_token and self._api is not None:
-            # Token 配置且 API 初始化成功，提升为最高优先级
-            logger.info("✅ 检测到 TUSHARE_TOKEN 且 API 初始化成功，Tushare 数据源优先级提升为最高 (Priority -1)")
-            return -1
+            logger.info(
+                "✅ 检测到 TUSHARE_TOKEN 且 API 初始化成功，Tushare 作为兜底数据源启用 (Priority %s)",
+                configured_priority,
+            )
+            return configured_priority
 
-        # Token 未配置或 API 初始化失败，保持默认优先级
-        return 2
+        # Token 未配置或 API 初始化失败，保持默认兜底优先级
+        return configured_priority
 
     def is_available(self) -> bool:
         """

@@ -126,35 +126,100 @@ python main.py --schedule
 nohup python main.py --schedule > /dev/null 2>&1 &
 ```
 
+### Ubuntu 24.04 一键初始化（推荐）
+
+如果你希望在 Ubuntu 24.04 上先把系统依赖、独立 Python 环境所需组件，以及 `codex` CLI 一次准备好，可以使用：
+
+```bash
+cd /opt/stock-analyzer
+chmod +x ./scripts/bootstrap-server-ubuntu.sh
+sudo ./scripts/bootstrap-server-ubuntu.sh
+```
+
+这个脚本会：
+- 安装 Python 3.11、`python3.11-venv`、`pip`
+- 安装 Node.js 和 `npm`
+- 通过 `npm install -g @openai/codex` 安装 `codex` CLI
+- 创建 `data/`、`logs/`、`reports/`
+
+完成后继续：
+
+```bash
+codex login
+./scripts/start-server-ubuntu.sh --llm-smoke-test
+./scripts/start-server-ubuntu.sh
+```
+
+> 建议把“系统依赖安装”和“服务启动”分开。不要让 `systemd` 每次重启服务时都顺手执行 `apt` 或 `npm install`，这样更稳定，也更不容易影响服务器上其他业务。
+
 ---
 
 ## 🔧 方案三：Systemd 服务
 
 创建 systemd 服务文件实现开机自启和自动重启：
 
+如果你希望先在 Ubuntu 24.04 上使用**独立虚拟环境**启动后端，可优先使用仓库脚本：
+
+```bash
+cd /opt/stock-analyzer
+chmod +x ./scripts/start-server-ubuntu.sh
+./scripts/start-server-ubuntu.sh
+```
+
+说明：
+- 默认在仓库内创建独立环境：`/opt/stock-analyzer/.server-venv`
+- 默认启动命令：`python main.py --serve-only --host 0.0.0.0 --port 8000`
+- 不会修改系统 Python 包，适合与其他服务共存
+- 启动脚本会自动安装/更新仓库 Python 依赖到 `.server-venv`，但不会执行 `apt` 或安装 `codex` CLI
+- 如需改端口，可使用：`HOST=0.0.0.0 PORT=8010 ./scripts/start-server-ubuntu.sh`
+- 如需运行其他命令，可直接把参数传给脚本，例如：`./scripts/start-server-ubuntu.sh --schedule`
+
 ### 1. 创建服务文件
 
 ```bash
-sudo vim /etc/systemd/system/stock-analyzer.service
+cp ./scripts/stock-analyzer.service.example /tmp/stock-analyzer.service
+vim /tmp/stock-analyzer.service
 ```
 
-内容：
+将下面这些占位符替换成你的实际值：
+- `<APP_USER>`：运行服务的 Linux 用户，建议单独创建如 `stock`
+- `<APP_DIR>`：项目部署目录，例如 `/opt/stock-analyzer`
+
+模板文件位置：
+- `scripts/stock-analyzer.service.example`
+
+替换后，将服务文件复制到 systemd 目录：
+
 ```ini
 [Unit]
-Description=A股自选股智能分析系统
-After=network.target
+Description=Daily Stock Analysis service
+After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=simple
-User=root
-WorkingDirectory=/opt/stock-analyzer
-Environment="PATH=/opt/stock-analyzer/venv/bin"
-ExecStart=/opt/stock-analyzer/venv/bin/python main.py --schedule
+User=<APP_USER>
+Group=<APP_USER>
+WorkingDirectory=<APP_DIR>
+Environment=HOST=0.0.0.0
+Environment=PORT=8000
+Environment=WEBUI_AUTO_BUILD=false
+Environment=PYTHONUNBUFFERED=1
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+ExecStart=<APP_DIR>/scripts/start-server-ubuntu.sh --schedule
 Restart=always
 RestartSec=30
+TimeoutStartSec=300
+TimeoutStopSec=30
 
 [Install]
 WantedBy=multi-user.target
+```
+
+安装到 systemd：
+
+```bash
+sudo cp /tmp/stock-analyzer.service /etc/systemd/system/stock-analyzer.service
 ```
 
 ### 2. 启动服务
@@ -176,6 +241,18 @@ sudo systemctl status stock-analyzer
 journalctl -u stock-analyzer -f
 ```
 
+如果你只想启动 Web/API 常驻服务，不跑进程内定时器，可以把 `ExecStart` 改成：
+
+```ini
+ExecStart=<APP_DIR>/scripts/start-server-ubuntu.sh
+```
+
+如果你需要改端口，例如 `8010`，可直接修改：
+
+```ini
+Environment=PORT=8010
+```
+
 ---
 
 ## ⚙️ 配置说明
@@ -184,7 +261,35 @@ journalctl -u stock-analyzer -f
 
 | 配置项 | 说明 | 获取方式 |
 |--------|------|----------|
-| `GEMINI_API_KEY` | AI 分析必需 | [Google AI Studio](https://aistudio.google.com/) |
+| `STOCK_LIST` | 自选股列表 | 逗号分隔的股票代码 |
+| `LLM_BACKEND` | LLM 后端，`codex` 或 `native` | `.env` |
+| `FEISHU_WEBHOOK_URL` / 其他通知渠道 | 推送结果到飞书/Telegram/企微等 | 各平台机器人 |
+
+> 如果你使用 `LLM_BACKEND=codex`，服务器上还需要可用的 `codex` CLI 和登录态，不要求在 `.env` 中配置 `OPENAI_API_KEY/GEMINI_API_KEY`。
+
+### `codex` CLI 准备
+
+服务器模式下若要使用 `LLM_BACKEND=codex`，建议按以下顺序准备：
+
+```bash
+# 1. 安装 Codex CLI（按你的安装方式）
+codex --version
+
+# 2. 登录
+codex login
+
+# 3. 在项目目录探活
+cd /opt/stock-analyzer
+./scripts/start-server-ubuntu.sh --llm-smoke-test
+```
+
+探活成功后，再启动常驻服务或 systemd。
+
+### `native` 模式必须配置项
+
+| 配置项 | 说明 | 获取方式 |
+|--------|------|----------|
+| `GEMINI_API_KEY` / `OPENAI_API_KEY` 等 | AI 分析必需 | 各模型平台 |
 | `STOCK_LIST` | 自选股列表 | 逗号分隔的股票代码 |
 | `WECHAT_WEBHOOK_URL` | 微信推送 | 企业微信群机器人 |
 
@@ -440,4 +545,3 @@ A: 每次运行约 2-5 分钟，一个月 22 个工作日 = 44-110 分钟，远�
 ---
 
 **祝部署顺利！🎉**
-

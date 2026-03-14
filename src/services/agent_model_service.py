@@ -119,6 +119,20 @@ def _build_legacy_deployments(config) -> List[Dict[str, Any]]:
 
 def list_agent_model_deployments(config) -> List[Dict[str, Any]]:
     """Return configured Agent model deployments without exposing secrets."""
+    if getattr(config, "llm_backend", "") == "codex":
+        return [
+            {
+                "deployment_id": "codex:runtime",
+                "model": f"codex/{getattr(config, 'codex_model', '') or 'default'}",
+                "provider": "codex",
+                "source": "codex_runtime",
+                "api_base": None,
+                "deployment_name": "codex_runtime",
+                "is_primary": True,
+                "is_fallback": False,
+            }
+        ]
+
     deployments = _build_non_legacy_deployments(config)
     if not deployments:
         deployments = _build_legacy_deployments(config)

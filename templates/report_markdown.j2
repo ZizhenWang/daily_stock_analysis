@@ -74,31 +74,31 @@
 
 {% set trend_data = data_persp.get('trend_status', {}) %}
 {% if trend_data %}
-**均线排列**: {{ trend_data.get('ma_alignment', 'N/A') }} | 多头排列: {{ '✅ 是' if trend_data.get('is_bullish') else '❌ 否' }} | 趋势强度: {{ trend_data.get('trend_score', 'N/A') }}/100
+**均线排列**: {{ trend_data.get('ma_alignment', 'N/A') }} | 多头排列: {{ '✅ 是' if trend_data.get('is_bullish') else '❌ 否' }} | 趋势强度: {{ fmt_sig(trend_data.get('trend_score', 'N/A')) }}/100
 {% endif %}
 
 {% set price_data = data_persp.get('price_position', {}) %}
 {% if price_data %}
 | 价格指标 | 数值 |
 |---------|------|
-| 当前价 | {{ price_data.get('current_price', 'N/A') }} |
-| MA5 | {{ price_data.get('ma5', 'N/A') }} |
-| MA10 | {{ price_data.get('ma10', 'N/A') }} |
-| MA20 | {{ price_data.get('ma20', 'N/A') }} |
-| 乖离率(MA5) | {{ price_data.get('bias_ma5', 'N/A') }}% {{ price_data.get('bias_status', 'N/A') }} |
-| 支撑位 | {{ price_data.get('support_level', 'N/A') }} |
-| 压力位 | {{ price_data.get('resistance_level', 'N/A') }} |
+| 当前价 | {{ fmt_sig(price_data.get('current_price', 'N/A')) }} |
+| MA5 | {{ fmt_sig(price_data.get('ma5', 'N/A')) }} |
+| MA10 | {{ fmt_sig(price_data.get('ma10', 'N/A')) }} |
+| MA20 | {{ fmt_sig(price_data.get('ma20', 'N/A')) }} |
+| 乖离率(MA5) | {{ fmt_sig(price_data.get('bias_ma5', 'N/A')) }}% {{ price_data.get('bias_status', 'N/A') }} |
+| 支撑位 | {{ fmt_sig(price_data.get('support_level', 'N/A')) }} |
+| 压力位 | {{ fmt_sig(price_data.get('resistance_level', 'N/A')) }} |
 {% endif %}
 
 {% set vol_data = data_persp.get('volume_analysis', {}) %}
 {% if vol_data %}
-**量能**: 量比 {{ vol_data.get('volume_ratio', 'N/A') }} ({{ vol_data.get('volume_status', '') }}) | 换手率 {{ vol_data.get('turnover_rate', 'N/A') }}%
+**量能**: 量比 {{ fmt_sig(vol_data.get('volume_ratio', 'N/A')) }} ({{ vol_data.get('volume_status', '') }}) | 换手率 {{ fmt_sig(vol_data.get('turnover_rate', 'N/A')) }}%
 💡 *{{ vol_data.get('volume_meaning', '') }}*
 {% endif %}
 
 {% set chip_data = data_persp.get('chip_structure', {}) %}
 {% if chip_data %}
-**筹码**: 获利比例 {{ chip_data.get('profit_ratio', 'N/A') }} | 平均成本 {{ chip_data.get('avg_cost', 'N/A') }} | 集中度 {{ chip_data.get('concentration', 'N/A') }} {{ chip_data.get('chip_health', 'N/A') }}
+**筹码**: 获利比例 {{ fmt_sig(chip_data.get('profit_ratio', 'N/A')) }} | 平均成本 {{ fmt_sig(chip_data.get('avg_cost', 'N/A')) }} | 集中度 {{ fmt_sig(chip_data.get('concentration', 'N/A')) }} {{ chip_data.get('chip_health', 'N/A') }}
 {% endif %}
 {% endif %}
 

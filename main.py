@@ -48,6 +48,7 @@ from src.core.pipeline import StockAnalysisPipeline
 from src.core.market_review import run_market_review
 from src.webui_frontend import prepare_webui_frontend_assets
 from src.config import get_config, Config
+from src.codex_backend import CodexBackend, CodexBackendError, build_smoke_test_prompt, build_smoke_test_schema
 from src.logging_config import setup_logging
 
 
@@ -131,6 +132,12 @@ def parse_arguments() -> argparse.Namespace:
         '--no-market-review',
         action='store_true',
         help='跳过大盘复盘分析'
+    )
+
+    parser.add_argument(
+        '--llm-smoke-test',
+        action='store_true',
+        help='仅验证 LLM 后端集成是否可用（当前用于 Codex 后端探活）'
     )
 
     parser.add_argument(
@@ -533,6 +540,35 @@ def main() -> int:
     for warning in warnings:
         logger.warning(warning)
 
+    if getattr(args, 'llm_smoke_test', False):
+        logger.info("模式: LLM 后端探活测试")
+        if config.llm_backend != "codex":
+            logger.error(
+                "当前 LLM_BACKEND=%s；--llm-smoke-test 目前仅支持 codex 模式",
+                config.llm_backend,
+            )
+            return 2
+
+        backend = CodexBackend(config)
+        if not backend.is_available():
+            logger.error("Codex CLI 不可用，请先确认 `codex` 命令已安装并可执行")
+            return 2
+
+        try:
+            result = backend.run_structured(
+                build_smoke_test_prompt(),
+                build_smoke_test_schema(),
+            )
+        except CodexBackendError as exc:
+            logger.error("Codex 探活失败: %s", exc)
+            return 1
+
+        logger.info("Codex 探活成功")
+        logger.info("后端: %s", result.payload.get("backend"))
+        logger.info("模型: %s", result.model_used)
+        logger.info("摘要: %s", result.payload.get("analysis_summary"))
+        return 0
+
     # 解析股票列表（统一为大写 Issue #355）
     stock_codes = None
     if args.stocks:
@@ -644,13 +680,13 @@ def main() -> int:
                     news_max_age_days=config.news_max_age_days,
                 )
 
-            if config.gemini_api_key or config.openai_api_key:
-                analyzer = GeminiAnalyzer(api_key=config.gemini_api_key)
-                if not analyzer.is_available():
+            analyzer = GeminiAnalyzer(api_key=config.gemini_api_key)
+            if not analyzer.is_available():
+                if config.llm_backend == "codex":
+                    logger.warning("Codex 后端不可用，将仅使用模板生成报告")
+                else:
                     logger.warning("AI 分析器初始化后不可用，请检查 API Key 配置")
-                    analyzer = None
-            else:
-                logger.warning("未检测到 API Key (Gemini/OpenAI)，将仅使用模板生成报告")
+                analyzer = None
 
             run_market_review(
                 notifier=notifier,

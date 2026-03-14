@@ -91,9 +91,14 @@
 
 > 💡 **推荐 [AIHubMix](https://aihubmix.com/?aff=CfMq)**：一个 Key 即可使用 Gemini、GPT、Claude、DeepSeek 等全球主流模型，无需科学上网，含免费模型（glm-5、gpt-4o-free 等），付费模型高稳定性无限并发。本项目可享 **10% 充值优惠**。
 
+> 🆕 **Codex 后端模式**：可通过 `LLM_BACKEND=codex` 让仓库优先使用本机 `codex exec` 作为 LLM 运行时，无需在 `.env` 中配置 `OPENAI_API_KEY/GEMINI_API_KEY`。当前已覆盖 CLI 单股分析、大盘复盘文本生成、Agent `/ask`/`/chat` 直答模式，以及图片导入识别；建议先用 `python main.py --llm-smoke-test` 验证集成，再逐步切换正式链路。
+
 | Secret 名称 | 说明 | 必填 |
 |------------|------|:----:|
 | `AIHUBMIX_KEY` | [AIHubMix](https://aihubmix.com/?aff=CfMq) API Key，一 Key 切换使用全系模型，免费模型可用 | 可选 |
+| `LLM_BACKEND` | LLM 后端选择：`codex`（默认）或 `native` | 可选 |
+| `CODEX_MODEL` | Codex CLI 指定模型，留空则使用 Codex 默认模型 | 可选 |
+| `CODEX_TIMEOUT_SECONDS` | Codex CLI 调用超时（秒） | 可选 |
 | `GEMINI_API_KEY` | [Google AI Studio](https://aistudio.google.com/) 获取免费 Key（需科学上网） | 可选 |
 | `ANTHROPIC_API_KEY` | [Anthropic Claude](https://console.anthropic.com/) API Key | 可选 |
 | `ANTHROPIC_MODEL` | Claude 模型（如 `claude-3-5-sonnet-20241022`） | 可选 |
@@ -103,6 +108,8 @@
 | `OPENAI_VISION_MODEL` | 图片识别专用模型（部分第三方模型不支持图像；不填则用 `OPENAI_MODEL`） | 可选 |
 
 > 注：AI 优先级 Gemini > Anthropic > OpenAI（含 AIHubmix），至少配置一个。`AIHUBMIX_KEY` 无需配置 `OPENAI_BASE_URL`，系统自动适配。图片识别需 Vision 能力模型。DeepSeek 思考模式（deepseek-reasoner、deepseek-r1、qwq、deepseek-chat）按模型名自动识别，无需额外配置。
+
+> 使用 `LLM_BACKEND=codex` 时，上述 API Key 检查会跳过；当前先提供 `--llm-smoke-test` 作为 Codex 集成探活命令。
 
 <details>
 <summary><b>通知渠道配置</b>（点击展开，至少配置一个）</summary>
@@ -155,7 +162,7 @@
 | `BOCHA_API_KEYS` | [博查搜索](https://open.bocha.cn/) Web Search API（中文搜索优化，支持AI摘要，多个key用逗号分隔） | 可选 |
 | `BRAVE_API_KEYS` | [Brave Search](https://brave.com/search/api/) API（隐私优先，美股优化，多个key用逗号分隔） | 可选 |
 | `SEARXNG_BASE_URLS` | SearXNG 自建实例（无配额兜底，需在 settings.yml 启用 format: json） | 可选 |
-| `TUSHARE_TOKEN` | [Tushare Pro](https://tushare.pro/weborder/#/login?reg=834638 ) Token | 可选 |
+| `TUSHARE_TOKEN` | [Tushare Pro](https://tushare.pro/weborder/#/login?reg=834638 ) Token（默认作为中国市场 fallback 数据源，不再自动抢最高优先级） | 可选 |
 | `PREFETCH_REALTIME_QUOTES` | 实时行情预取开关：设为 `false` 可禁用全市场预取（默认 `true`） | 可选 |
 | `WECHAT_MSG_TYPE` | 企微消息类型，默认 markdown，支持配置 text 类型，发送纯 markdown 文本 | 可选 |
 | `NEWS_MAX_AGE_DAYS` | 新闻最大时效（天），默认 3，避免使用过时信息 | 可选 |
@@ -356,6 +363,13 @@ LITELLM_MODEL=openai/deepseek-chat
 访问 `http://127.0.0.1:8000` 即可使用。
 
 > 也可以使用 `python main.py --serve` (等效命令)
+>
+> Ubuntu 服务器部署时，可使用仓库自带脚本 [`scripts/start-server-ubuntu.sh`](/Users/zizhen/Documents/repos/codex/daily_stock_analysis/scripts/start-server-ubuntu.sh) 自动创建独立 `.server-venv`，避免污染系统 Python 或影响其他服务。默认启动命令等价于：
+> ```bash
+> ./scripts/start-server-ubuntu.sh
+> ```
+> 如需先安装 Ubuntu 24.04 的系统依赖和 `codex` CLI，可先运行 [`scripts/bootstrap-server-ubuntu.sh`](/Users/zizhen/Documents/repos/codex/daily_stock_analysis/scripts/bootstrap-server-ubuntu.sh)。
+> 如需开机自启，可直接参考仓库模板 [`scripts/stock-analyzer.service.example`](/Users/zizhen/Documents/repos/codex/daily_stock_analysis/scripts/stock-analyzer.service.example) 配置 `systemd` 服务。
 
 ## 🗺️ Roadmap
 

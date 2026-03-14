@@ -58,17 +58,28 @@ class StatusCommand(BotCommand):
     
     def _collect_status(self, config) -> dict:
         """收集系统状态信息"""
+        codex_available = False
+        if getattr(config, "llm_backend", "") == "codex":
+            try:
+                from src.codex_backend import CodexBackend
+
+                codex_available = CodexBackend.is_available()
+            except Exception:
+                codex_available = False
+
         status = {
             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "python_version": f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
             "platform": platform.system(),
             "stock_count": len(config.stock_list),
             "stock_list": config.stock_list[:5],  # 只显示前5个
+            "llm_backend": getattr(config, "llm_backend", "native"),
         }
         
         # AI 配置状态
         status["ai_gemini"] = bool(config.gemini_api_key)
         status["ai_openai"] = bool(config.openai_api_key)
+        status["ai_codex"] = codex_available
         
         # 搜索服务状态
         status["search_bocha"] = len(config.bocha_api_keys) > 0
@@ -114,6 +125,8 @@ class StatusCommand(BotCommand):
         lines.extend([
             "",
             "**🤖 AI 分析服务**",
+            f"• LLM Backend: {status['llm_backend']}",
+            f"• Codex CLI: {icon(status['ai_codex'])}",
             f"• Gemini API: {icon(status['ai_gemini'])}",
             f"• OpenAI API: {icon(status['ai_openai'])}",
             "",
@@ -133,7 +146,7 @@ class StatusCommand(BotCommand):
         ])
         
         # AI 服务总体状态
-        ai_available = status['ai_gemini'] or status['ai_openai']
+        ai_available = status['ai_codex'] if status['llm_backend'] == 'codex' else (status['ai_gemini'] or status['ai_openai'])
         if ai_available:
             lines.extend([
                 "",
@@ -145,7 +158,7 @@ class StatusCommand(BotCommand):
                 "",
                 "---",
                 "⚠️ **AI 服务未配置，分析功能不可用**",
-                "请配置 Gemini 或 OpenAI API Key",
+                "请配置 Codex 运行时或 Gemini / OpenAI API Key",
             ])
         
         return "\n".join(lines)

@@ -16,6 +16,7 @@ import litellm
 from litellm import Router
 
 from src.config import get_config, get_api_keys_for_model, extra_litellm_params, get_configured_llm_models
+from src.codex_backend import CodexBackend, CodexBackendError, build_text_response_schema
 
 logger = logging.getLogger(__name__)
 
@@ -109,7 +110,15 @@ class LLMToolAdapter:
         self._config = config
         self._router = None          # litellm Router (multi-key primary model)
         self._litellm_available = False
-        self._init_litellm()
+        self._codex_backend = None
+        if getattr(config, "llm_backend", "native") == "codex":
+            self._init_codex()
+        else:
+            self._init_litellm()
+
+    def _init_codex(self) -> None:
+        """Initialize the Codex-backed text adapter."""
+        self._codex_backend = CodexBackend(self._config)
 
     def _has_channel_config(self) -> bool:
         """Check if multi-channel config (channels / YAML) is active."""
@@ -181,11 +190,15 @@ class LLMToolAdapter:
     @property
     def is_available(self) -> bool:
         """True if litellm is configured and at least one API key is present."""
+        if getattr(self._config, "llm_backend", "native") == "codex":
+            return bool(self._codex_backend and self._codex_backend.is_available())
         return self._router is not None or self._litellm_available
 
     @property
     def primary_provider(self) -> str:
         """Provider name extracted from litellm_model prefix."""
+        if getattr(self._config, "llm_backend", "native") == "codex":
+            return "codex"
         model = self._config.litellm_model or ""
         if "/" in model:
             return model.split("/")[0]
@@ -244,6 +257,15 @@ class LLMToolAdapter:
         timeout: Optional[float] = None,
     ) -> LLMResponse:
         """Shared completion path for both tool and text-only calls."""
+        if getattr(self._config, "llm_backend", "native") == "codex":
+            return self._call_codex_completion(
+                messages,
+                tools=tools or [],
+                temperature=temperature,
+                max_tokens=max_tokens,
+                timeout=timeout,
+            )
+
         config = self._config
         models_to_try = [config.litellm_model] + (config.litellm_fallback_models or [])
         models_to_try = [m for m in models_to_try if m]
@@ -267,6 +289,136 @@ class LLMToolAdapter:
         error_msg = f"All LLM models failed. Last error: {last_error}"
         logger.error(error_msg)
         return LLMResponse(content=error_msg, provider="error")
+
+    def _call_codex_completion(
+        self,
+        messages: List[Dict[str, Any]],
+        *,
+        tools: List[dict],
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+        timeout: Optional[float] = None,
+    ) -> LLMResponse:
+        """Call Codex as a direct-answer backend.
+
+        Codex does not expose LiteLLM-compatible tool-calling here, so we
+        collapse the full conversation and tool catalog into a prompt and ask
+        for the final answer directly.
+        """
+        if not self._codex_backend or not self._codex_backend.is_available():
+            return LLMResponse(
+                content="Codex CLI 不可用，无法执行 Agent 对话。",
+                provider="error",
+                model="codex",
+            )
+
+        prompt = self._build_codex_prompt(messages, tools)
+        schema = build_text_response_schema()
+
+        try:
+            result = self._codex_backend.run_structured(
+                prompt,
+                schema,
+            )
+        except CodexBackendError as exc:
+            logger.error("Codex agent completion failed: %s", exc)
+            return LLMResponse(
+                content=f"Codex Agent 调用失败: {exc}",
+                provider="error",
+                model="codex",
+            )
+
+        text = str((result.payload or {}).get("content", "")).strip()
+        if not text:
+            return LLMResponse(
+                content="Codex Agent 未返回有效内容。",
+                provider="error",
+                model="codex",
+            )
+
+        usage = {
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0,
+        }
+        return LLMResponse(
+            content=text,
+            tool_calls=[],
+            usage=usage,
+            provider="codex",
+            model=result.model_used,
+            raw=result,
+        )
+
+    def _build_codex_prompt(self, messages: List[Dict[str, Any]], tools: List[dict]) -> str:
+        """Flatten the agent request into a Codex-native prompt."""
+        prompt_parts: List[str] = [
+            "你正在接管一个股票分析 Agent 的最终回答阶段。",
+            "请直接输出最终回答，不要输出 tool_calls、函数调用、XML 或额外包装。",
+            "如果系统消息要求输出 JSON，就只输出 JSON；否则输出自然语言中文答案。",
+            "如果上下文中已经包含历史工具结果或预取数据，优先基于这些真实数据回答。",
+            "如果信息不足，请明确说明不足之处，不要编造实时数据。",
+        ]
+
+        tool_summary = self._summarize_tools(tools)
+        if tool_summary:
+            prompt_parts.extend(
+                [
+                    "可用工具清单如下，但当前运行模式不会执行工具调用；你只能基于下方消息历史和已提供上下文直接作答：",
+                    tool_summary,
+                ]
+            )
+
+        prompt_parts.append("消息历史如下：")
+        prompt_parts.append(self._format_messages_for_codex(messages))
+        return "\n\n".join(part for part in prompt_parts if part)
+
+    def _summarize_tools(self, tools: List[dict]) -> str:
+        """Return a compact human-readable tool catalog."""
+        if not tools:
+            return ""
+
+        lines: List[str] = []
+        for tool in tools[:20]:
+            fn = tool.get("function") or {}
+            name = str(fn.get("name", "")).strip()
+            description = str(fn.get("description", "")).strip()
+            if not name:
+                continue
+            if description:
+                lines.append(f"- {name}: {description}")
+            else:
+                lines.append(f"- {name}")
+        return "\n".join(lines)
+
+    def _format_messages_for_codex(self, messages: List[Dict[str, Any]]) -> str:
+        """Render conversation history into plain text."""
+        rendered: List[str] = []
+        for msg in messages:
+            role = str(msg.get("role", "user")).upper()
+            content = msg.get("content")
+            if isinstance(content, (dict, list)):
+                try:
+                    content_text = json.dumps(content, ensure_ascii=False, default=str)
+                except (TypeError, ValueError):
+                    content_text = str(content)
+            else:
+                content_text = str(content or "")
+
+            if msg.get("tool_calls"):
+                try:
+                    tool_call_text = json.dumps(msg.get("tool_calls"), ensure_ascii=False, default=str)
+                except (TypeError, ValueError):
+                    tool_call_text = str(msg.get("tool_calls"))
+                rendered.append(f"[{role}]\n{content_text}\nTOOL_CALLS:\n{tool_call_text}".strip())
+                continue
+
+            tool_name = msg.get("name")
+            if role == "TOOL" and tool_name:
+                rendered.append(f"[TOOL:{tool_name}]\n{content_text}".strip())
+            else:
+                rendered.append(f"[{role}]\n{content_text}".strip())
+        return "\n\n".join(rendered)
 
     def _call_litellm_model(
         self,

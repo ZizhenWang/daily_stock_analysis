@@ -10,6 +10,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- 🤖 **Codex backend smoke test** — added `LLM_BACKEND=codex|native` runtime switch, `CODEX_MODEL` / `CODEX_TIMEOUT_SECONDS` config, and `python main.py --llm-smoke-test` to verify Codex CLI integration without repo-managed LLM API keys
+- 🤖 **Codex runtime expansion** — analyzer main path, Agent `/ask`/`/chat` direct-answer mode, image stock extraction, and Agent model discovery now support `LLM_BACKEND=codex` without requiring repo-managed LLM API keys
+- 🖥️ **Ubuntu server startup script** — added `scripts/start-server-ubuntu.sh` to bootstrap an isolated `.server-venv` and start `--serve-only` on Ubuntu without polluting the system Python environment
+- 🧱 **Ubuntu bootstrap script** — added `scripts/bootstrap-server-ubuntu.sh` to install system packages, Node.js/npm, and the `codex` CLI before the isolated app startup step
+- 🧰 **Systemd service template** — added `scripts/stock-analyzer.service.example` for Ubuntu/server deployments using the isolated startup script
 - 🗑️ **History batch deletion** — Web UI now supports multi-selection and batch deletion of analysis history; added `POST /api/v1/history/batch-delete` endpoint and `ConfirmDialog` component.
 - 🔐 **Auth settings API** — new `POST /api/v1/auth/settings` endpoint to enable or disable Web authentication at runtime and set the initial admin password when needed
 - openclaw Skill 集成指南 — 新增 [docs/openclaw-skill-integration.md](openclaw-skill-integration.md)，说明如何通过 openclaw Skill 调用 DSA API
@@ -31,6 +36,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - ⚙️ **New config entries** — `AGENT_ORCHESTRATOR_MODE`, `AGENT_RISK_OVERRIDE`, `AGENT_DEEP_RESEARCH_BUDGET`, `AGENT_MEMORY_ENABLED`, `AGENT_STRATEGY_AUTOWEIGHT`, `AGENT_STRATEGY_ROUTING` — all registered in `config.py` + `config_registry.py` (WebUI-configurable)
 
 ### Changed
+- 🔄 **Tushare fallback priority** — `TushareFetcher` no longer auto-promotes to highest priority when a token is present; it now defaults to fallback priority so broader-coverage free sources are preferred first
 - 🔐 **Auth password state semantics** — stored password existence is now tracked independently from auth enablement; when auth is disabled, `/api/v1/auth/status` returns `passwordSet=false` while preserving the saved password for future re-enable
 - 🔐 **Auth settings re-enable hardening** — re-enabling auth with a stored password now requires `currentPassword`, and failed session creation rolls back the auth toggle to avoid lockout
 - ♻️ **AgentExecutor refactored** — `_run_loop` delegates to shared `runner.run_agent_loop()`; removed duplicated serialization/parsing/thinking-label code

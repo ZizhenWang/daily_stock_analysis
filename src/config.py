@@ -267,6 +267,9 @@ class Config:
     tushare_token: Optional[str] = None
     
     # === AI 分析配置 ===
+    llm_backend: str = "codex"  # codex | native
+    codex_model: str = ""
+    codex_timeout_seconds: int = 90
     # LiteLLM unified model config (provider/model format, e.g. gemini/gemini-2.5-flash)
     litellm_model: str = ""  # Primary model; must include provider prefix when set explicitly
     litellm_fallback_models: List[str] = field(default_factory=list)  # Cross-model fallback list
@@ -833,6 +836,9 @@ class Config:
             feishu_app_secret=os.getenv('FEISHU_APP_SECRET'),
             feishu_folder_token=os.getenv('FEISHU_FOLDER_TOKEN'),
             tushare_token=os.getenv('TUSHARE_TOKEN'),
+            llm_backend=(os.getenv('LLM_BACKEND', 'codex') or 'codex').strip().lower(),
+            codex_model=(os.getenv('CODEX_MODEL', '') or '').strip(),
+            codex_timeout_seconds=max(10, int(os.getenv('CODEX_TIMEOUT_SECONDS', '90'))),
             litellm_model=litellm_model,
             litellm_fallback_models=litellm_fallback_models,
             llm_temperature=resolve_unified_llm_temperature(litellm_model),
@@ -1431,6 +1437,22 @@ class Config:
             ))
 
         # --- LLM availability ---
+        if self.llm_backend not in {"codex", "native"}:
+            issues.append(ConfigIssue(
+                severity="error",
+                message="LLM_BACKEND 仅支持 codex 或 native",
+                field="LLM_BACKEND",
+            ))
+            return issues
+
+        if self.llm_backend == "codex":
+            issues.append(ConfigIssue(
+                severity="info",
+                message="当前使用 Codex 作为 LLM 后端；repo 内置 API Key 校验已跳过",
+                field="LLM_BACKEND",
+            ))
+            return issues
+
         # llm_model_list is populated for YAML / channels / managed legacy keys.
         # Other LiteLLM-native providers (for example cohere/*) run through the
         # direct litellm env path and therefore do not populate llm_model_list.

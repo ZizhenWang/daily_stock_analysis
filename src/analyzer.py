@@ -22,6 +22,7 @@ from json_repair import repair_json
 from litellm import Router
 
 from src.agent.llm_adapter import get_thinking_extra_body
+from src.codex_backend import CodexBackend, CodexBackendError, build_text_response_schema
 from src.config import Config, get_config, get_api_keys_for_model, extra_litellm_params, get_configured_llm_models
 from src.storage import persist_llm_usage
 from src.data.stock_mapping import STOCK_NAME_MAP
@@ -42,16 +43,16 @@ def check_content_integrity(result: "AnalysisResult") -> Tuple[bool, List[str]]:
         missing.append("operation_advice")
     if not (result.analysis_summary or "").strip():
         missing.append("analysis_summary")
-    dash = result.dashboard or {}
-    core = dash.get("core_conclusion") or {}
+    dash = result.dashboard if isinstance(result.dashboard, dict) else {}
+    core = dash.get("core_conclusion") if isinstance(dash.get("core_conclusion"), dict) else {}
     if not (core.get("one_sentence") or "").strip():
         missing.append("dashboard.core_conclusion.one_sentence")
-    intel = dash.get("intelligence")
+    intel = dash.get("intelligence") if isinstance(dash.get("intelligence"), dict) else None
     if intel is None or "risk_alerts" not in intel:
         missing.append("dashboard.intelligence.risk_alerts")
     if result.decision_type in ("buy", "hold"):
-        battle = dash.get("battle_plan") or {}
-        sp = battle.get("sniper_points") or {}
+        battle = dash.get("battle_plan") if isinstance(dash.get("battle_plan"), dict) else {}
+        sp = battle.get("sniper_points") if isinstance(battle.get("sniper_points"), dict) else {}
         stop_loss = sp.get("stop_loss")
         if stop_loss is None or (isinstance(stop_loss, str) and not stop_loss.strip()):
             missing.append("dashboard.battle_plan.sniper_points.stop_loss")
@@ -70,7 +71,7 @@ def apply_placeholder_fill(result: "AnalysisResult", missing_fields: List[str]) 
         elif field == "dashboard.core_conclusion.one_sentence":
             if not result.dashboard:
                 result.dashboard = {}
-            if "core_conclusion" not in result.dashboard:
+            if not isinstance(result.dashboard.get("core_conclusion"), dict):
                 result.dashboard["core_conclusion"] = {}
             result.dashboard["core_conclusion"]["one_sentence"] = (
                 result.dashboard["core_conclusion"].get("one_sentence") or "待补充"
@@ -78,16 +79,16 @@ def apply_placeholder_fill(result: "AnalysisResult", missing_fields: List[str]) 
         elif field == "dashboard.intelligence.risk_alerts":
             if not result.dashboard:
                 result.dashboard = {}
-            if "intelligence" not in result.dashboard:
+            if not isinstance(result.dashboard.get("intelligence"), dict):
                 result.dashboard["intelligence"] = {}
             if "risk_alerts" not in result.dashboard["intelligence"]:
                 result.dashboard["intelligence"]["risk_alerts"] = []
         elif field == "dashboard.battle_plan.sniper_points.stop_loss":
             if not result.dashboard:
                 result.dashboard = {}
-            if "battle_plan" not in result.dashboard:
+            if not isinstance(result.dashboard.get("battle_plan"), dict):
                 result.dashboard["battle_plan"] = {}
-            if "sniper_points" not in result.dashboard["battle_plan"]:
+            if not isinstance(result.dashboard["battle_plan"].get("sniper_points"), dict):
                 result.dashboard["battle_plan"]["sniper_points"] = {}
             result.dashboard["battle_plan"]["sniper_points"]["stop_loss"] = "待补充"
 
@@ -120,6 +121,76 @@ def _safe_float(v: Any, default: float = 0.0) -> float:
         return float(str(v).strip())
     except (TypeError, ValueError):
         return default
+
+
+def _coerce_text_field(value: Any, *, preferred_keys: Optional[List[str]] = None, default: str = "") -> str:
+    """Normalize arbitrary LLM field values into display-friendly text."""
+    if value is None:
+        return default
+    if isinstance(value, str):
+        return value
+    if isinstance(value, (int, float, bool)):
+        return str(value)
+    if isinstance(value, dict):
+        key_candidates = list(preferred_keys or []) + [
+            "action",
+            "advice",
+            "summary",
+            "signal",
+            "direction",
+            "trend",
+            "trend_status",
+            "recommendation",
+            "one_sentence",
+            "conclusion",
+            "status",
+        ]
+        for key in key_candidates:
+            candidate = value.get(key)
+            normalized = _coerce_text_field(candidate, default="")
+            if normalized.strip():
+                return normalized
+        # Common nested summary shapes returned by Codex / model reasoning
+        for nested in (
+            ("core_conclusion", "one_sentence"),
+            ("core_conclusion", "signal_type"),
+            ("core_conclusion", "position_advice", "no_position"),
+            ("core_conclusion", "position_advice", "has_position"),
+            ("position_guidance", "empty_position"),
+            ("position_advice", "no_position"),
+            ("position_strategy", "entry_plan"),
+            ("position_strategy", "suggested_position"),
+            ("battle_plan", "position_strategy", "entry_plan"),
+            ("battle_plan", "sniper_points", "ideal_buy"),
+            ("bias", "summary"),
+        ):
+            node = value
+            ok = True
+            for key in nested:
+                if not isinstance(node, dict):
+                    ok = False
+                    break
+                node = node.get(key)
+            if ok:
+                normalized = _coerce_text_field(node, default="")
+                if normalized.strip():
+                    return normalized
+        compact_parts: List[str] = []
+        for key, candidate in value.items():
+            normalized = _coerce_text_field(candidate, default="")
+            if normalized.strip():
+                compact_parts.append(normalized.strip())
+            if len(compact_parts) >= 2:
+                break
+        if compact_parts:
+            return "；".join(dict.fromkeys(compact_parts))
+        try:
+            return json.dumps(value, ensure_ascii=False)
+        except TypeError:
+            return default
+    if isinstance(value, list):
+        return "\n".join(_coerce_text_field(item, default="") for item in value if item is not None)
+    return str(value)
 
 
 def _derive_chip_health(profit_ratio: float, concentration_90: float) -> str:
@@ -230,6 +301,8 @@ def fill_price_position_if_needed(
             logger.info("[price_position] Filled placeholder fields from computed data")
     except Exception as e:
         logger.warning("[price_position] Fill failed, skipping: %s", e)
+
+
 
 
 def get_stock_name_multi_source(
@@ -684,9 +757,17 @@ class GeminiAnalyzer:
         """
         self._router = None
         self._litellm_available = False
-        self._init_litellm()
-        if not self._litellm_available:
-            logger.warning("No LLM configured (LITELLM_MODEL / API keys), AI analysis will be unavailable")
+        self._codex_backend = None
+        self._config = get_config()
+        if self._config.llm_backend == "codex":
+            self._codex_backend = CodexBackend(self._config)
+            self._litellm_available = self._codex_backend.is_available()
+            if not self._litellm_available:
+                logger.warning("Codex backend unavailable, AI analysis will be unavailable")
+        else:
+            self._init_litellm()
+            if not self._litellm_available:
+                logger.warning("No LLM configured (LITELLM_MODEL / API keys), AI analysis will be unavailable")
 
     def _has_channel_config(self, config: Config) -> bool:
         """Check if multi-channel config (channels / YAML / legacy model_list) is active."""
@@ -757,7 +838,36 @@ class GeminiAnalyzer:
 
     def is_available(self) -> bool:
         """Check if LiteLLM is properly configured with at least one API key."""
-        return self._router is not None or self._litellm_available
+        return self._litellm_available or self._router is not None
+
+    def _call_codex_analysis(self, prompt: str) -> Tuple[str, str, Dict[str, Any]]:
+        """Call Codex backend for stock analysis JSON emitted as text."""
+        if not self._codex_backend:
+            raise CodexBackendError("Codex backend 未初始化")
+
+        codex_prompt = "\n\n".join([
+            prompt,
+            "请只返回一个完整 JSON 对象，不要输出 Markdown、解释、前后缀或代码块。"
+            " 该 JSON 对象需尽量符合 AnalysisReportSchema 的字段语义，"
+            "至少包含 stock_name、sentiment_score、trend_prediction、operation_advice、"
+            "confidence_level、analysis_summary、risk_warning、dashboard。",
+        ])
+        result = self._codex_backend.run_structured(codex_prompt, build_text_response_schema())
+        content = str(result.payload.get("content", "")).strip()
+        if not content:
+            raise CodexBackendError("Codex 返回了空响应")
+        return content, result.model_used, {}
+
+    def _call_codex_text(self, prompt: str) -> Tuple[str, str, Dict[str, Any]]:
+        """Call Codex backend for plain-text content wrapped in JSON."""
+        if not self._codex_backend:
+            raise CodexBackendError("Codex backend 未初始化")
+
+        result = self._codex_backend.run_structured(prompt, build_text_response_schema())
+        content = str(result.payload.get("content", "")).strip()
+        if not content:
+            raise CodexBackendError("Codex 文本响应为空")
+        return content, result.model_used, {}
 
     def _call_litellm(self, prompt: str, generation_config: dict) -> Tuple[str, str, Dict[str, Any]]:
         """Call LLM via litellm with fallback across configured models.
@@ -861,13 +971,17 @@ class GeminiAnalyzer:
             Response text, or None if the LLM call fails (error is logged).
         """
         try:
-            result = self._call_litellm(
-                prompt,
-                generation_config={"max_tokens": max_tokens, "temperature": temperature},
-            )
+            if self._config.llm_backend == "codex":
+                result = self._call_codex_text(prompt)
+            else:
+                result = self._call_litellm(
+                    prompt,
+                    generation_config={"max_tokens": max_tokens, "temperature": temperature},
+                )
             if isinstance(result, tuple):
                 text, model_used, usage = result
-                persist_llm_usage(usage, model_used, call_type="market_review")
+                if usage:
+                    persist_llm_usage(usage, model_used, call_type="market_review")
                 return text
             return result
         except Exception as exc:
@@ -916,6 +1030,11 @@ class GeminiAnalyzer:
         
         # 如果模型不可用，返回默认结果
         if not self.is_available():
+            missing_hint = (
+                '请确认 Codex CLI 已安装并可用后重试'
+                if config.llm_backend == "codex"
+                else '请配置 LLM API Key（GEMINI_API_KEY/ANTHROPIC_API_KEY/OPENAI_API_KEY）后重试'
+            )
             return AnalysisResult(
                 code=code,
                 name=name,
@@ -923,10 +1042,10 @@ class GeminiAnalyzer:
                 trend_prediction='震荡',
                 operation_advice='持有',
                 confidence_level='低',
-                analysis_summary='AI 分析功能未启用（未配置 API Key）',
-                risk_warning='请配置 LLM API Key（GEMINI_API_KEY/ANTHROPIC_API_KEY/OPENAI_API_KEY）后重试',
+                analysis_summary='AI 分析功能未启用',
+                risk_warning=missing_hint,
                 success=False,
-                error_message='LLM API Key 未配置',
+                error_message='LLM backend unavailable',
                 model_used=None,
             )
         
@@ -935,7 +1054,11 @@ class GeminiAnalyzer:
             prompt = self._format_prompt(context, name, news_context)
             
             config = get_config()
-            model_name = config.litellm_model or "unknown"
+            model_name = (
+                config.litellm_model or "unknown"
+                if config.llm_backend != "codex"
+                else (config.codex_model or "codex")
+            )
             logger.info(f"========== AI 分析 {name}({code}) ==========")
             logger.info(f"[LLM配置] 模型: {model_name}")
             logger.info(f"[LLM配置] Prompt 长度: {len(prompt)} 字符")
@@ -961,7 +1084,10 @@ class GeminiAnalyzer:
 
             while True:
                 start_time = time.time()
-                response_text, model_used, llm_usage = self._call_litellm(current_prompt, generation_config)
+                if config.llm_backend == "codex":
+                    response_text, model_used, llm_usage = self._call_codex_analysis(current_prompt)
+                else:
+                    response_text, model_used, llm_usage = self._call_litellm(current_prompt, generation_config)
                 elapsed = time.time() - start_time
 
                 # 记录响应信息
@@ -1007,7 +1133,8 @@ class GeminiAnalyzer:
                     )
                     break
 
-            persist_llm_usage(llm_usage, model_used, call_type="analysis", stock_code=code)
+            if llm_usage:
+                persist_llm_usage(llm_usage, model_used, call_type="analysis", stock_code=code)
 
             logger.info(f"[LLM解析] {name}({code}) 分析完成: {result.trend_prediction}, 评分 {result.sentiment_score}")
 
@@ -1396,64 +1523,7 @@ class GeminiAnalyzer:
                         str(e)[:100],
                     )
 
-                # 提取 dashboard 数据
-                dashboard = data.get('dashboard', None)
-
-                # 优先使用 AI 返回的股票名称（如果原名称无效或包含代码）
-                ai_stock_name = data.get('stock_name')
-                if ai_stock_name and (name.startswith('股票') or name == code or 'Unknown' in name):
-                    name = ai_stock_name
-
-                # 解析所有字段，使用默认值防止缺失
-                # 解析 decision_type，如果没有则根据 operation_advice 推断
-                decision_type = data.get('decision_type', '')
-                if not decision_type:
-                    op = data.get('operation_advice', '持有')
-                    if op in ['买入', '加仓', '强烈买入']:
-                        decision_type = 'buy'
-                    elif op in ['卖出', '减仓', '强烈卖出']:
-                        decision_type = 'sell'
-                    else:
-                        decision_type = 'hold'
-                
-                return AnalysisResult(
-                    code=code,
-                    name=name,
-                    # 核心指标
-                    sentiment_score=int(data.get('sentiment_score', 50)),
-                    trend_prediction=data.get('trend_prediction', '震荡'),
-                    operation_advice=data.get('operation_advice', '持有'),
-                    decision_type=decision_type,
-                    confidence_level=data.get('confidence_level', '中'),
-                    # 决策仪表盘
-                    dashboard=dashboard,
-                    # 走势分析
-                    trend_analysis=data.get('trend_analysis', ''),
-                    short_term_outlook=data.get('short_term_outlook', ''),
-                    medium_term_outlook=data.get('medium_term_outlook', ''),
-                    # 技术面
-                    technical_analysis=data.get('technical_analysis', ''),
-                    ma_analysis=data.get('ma_analysis', ''),
-                    volume_analysis=data.get('volume_analysis', ''),
-                    pattern_analysis=data.get('pattern_analysis', ''),
-                    # 基本面
-                    fundamental_analysis=data.get('fundamental_analysis', ''),
-                    sector_position=data.get('sector_position', ''),
-                    company_highlights=data.get('company_highlights', ''),
-                    # 情绪面/消息面
-                    news_summary=data.get('news_summary', ''),
-                    market_sentiment=data.get('market_sentiment', ''),
-                    hot_topics=data.get('hot_topics', ''),
-                    # 综合
-                    analysis_summary=data.get('analysis_summary', '分析完成'),
-                    key_points=data.get('key_points', ''),
-                    risk_warning=data.get('risk_warning', ''),
-                    buy_reason=data.get('buy_reason', ''),
-                    # 元数据
-                    search_performed=data.get('search_performed', False),
-                    data_sources=data.get('data_sources', '技术面数据'),
-                    success=True,
-                )
+                return self._result_from_data(data, code, name)
             else:
                 # 没有找到 JSON，尝试从纯文本中提取信息
                 logger.warning(f"无法从响应中提取 JSON，使用原始文本分析")
@@ -1482,6 +1552,83 @@ class GeminiAnalyzer:
         json_str = repair_json(json_str)
         
         return json_str
+
+    def _result_from_data(self, data: Dict[str, Any], code: str, name: str) -> AnalysisResult:
+        """Build AnalysisResult from a parsed JSON dict."""
+        dashboard = data.get('dashboard', None)
+        if not isinstance(dashboard, dict):
+            dashboard = None
+
+        ai_stock_name = data.get('stock_name')
+        if ai_stock_name and (name.startswith('股票') or name == code or 'Unknown' in name):
+            name = ai_stock_name
+
+        decision_type = data.get('decision_type', '')
+        if not decision_type:
+            op = _coerce_text_field(data.get('operation_advice', '持有'), preferred_keys=['action', 'advice'], default='持有')
+            if op in ['买入', '加仓', '强烈买入']:
+                decision_type = 'buy'
+            elif op in ['卖出', '减仓', '强烈卖出']:
+                decision_type = 'sell'
+            else:
+                decision_type = 'hold'
+
+        sentiment_score = data.get('sentiment_score', 50)
+        try:
+            sentiment_score = int(sentiment_score)
+        except (TypeError, ValueError):
+            sentiment_score = 50
+
+        return AnalysisResult(
+            code=code,
+            name=name,
+            sentiment_score=sentiment_score,
+            trend_prediction=_coerce_text_field(
+                data.get('trend_prediction', '震荡'),
+                preferred_keys=['trend', 'summary', 'signal'],
+                default='震荡',
+            ),
+            operation_advice=_coerce_text_field(
+                data.get('operation_advice', '持有'),
+                preferred_keys=['action', 'advice', 'summary'],
+                default='持有',
+            ),
+            decision_type=decision_type,
+            confidence_level=_coerce_text_field(
+                data.get('confidence_level', '中'),
+                preferred_keys=['level', 'confidence'],
+                default='中',
+            ),
+            dashboard=dashboard,
+            trend_analysis=_coerce_text_field(data.get('trend_analysis', ''), default=''),
+            short_term_outlook=_coerce_text_field(data.get('short_term_outlook', ''), default=''),
+            medium_term_outlook=_coerce_text_field(data.get('medium_term_outlook', ''), default=''),
+            technical_analysis=_coerce_text_field(data.get('technical_analysis', ''), default=''),
+            ma_analysis=_coerce_text_field(data.get('ma_analysis', ''), default=''),
+            volume_analysis=_coerce_text_field(data.get('volume_analysis', ''), default=''),
+            pattern_analysis=_coerce_text_field(data.get('pattern_analysis', ''), default=''),
+            fundamental_analysis=_coerce_text_field(data.get('fundamental_analysis', ''), default=''),
+            sector_position=_coerce_text_field(data.get('sector_position', ''), default=''),
+            company_highlights=_coerce_text_field(data.get('company_highlights', ''), default=''),
+            news_summary=_coerce_text_field(data.get('news_summary', ''), default=''),
+            market_sentiment=_coerce_text_field(data.get('market_sentiment', ''), default=''),
+            hot_topics=_coerce_text_field(data.get('hot_topics', ''), default=''),
+            analysis_summary=_coerce_text_field(
+                data.get('analysis_summary', '分析完成'),
+                preferred_keys=['summary', 'one_sentence', 'conclusion'],
+                default='分析完成',
+            ),
+            key_points=_coerce_text_field(data.get('key_points', ''), default=''),
+            risk_warning=_coerce_text_field(
+                data.get('risk_warning', ''),
+                preferred_keys=['summary', 'warning', 'risk'],
+                default='',
+            ),
+            buy_reason=_coerce_text_field(data.get('buy_reason', ''), default=''),
+            search_performed=data.get('search_performed', False),
+            data_sources=_coerce_text_field(data.get('data_sources', '技术面数据'), default='技术面数据'),
+            success=True,
+        )
     
     def _parse_text_response(
         self, 

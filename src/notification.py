@@ -695,19 +695,41 @@ class NotificationService(
     def _clean_sniper_value(value: Any) -> str:
         """Normalize sniper point values and remove redundant label prefixes."""
         if value is None:
-            return 'N/A'
+            return '模型未给出'
         if isinstance(value, (int, float)):
-            return str(value)
+            return NotificationService._format_significant_digits(value)
         if not isinstance(value, str):
             return str(value)
-        if not value or value == 'N/A':
-            return value
+        if not value or value in ('N/A', '-', '—', 'None'):
+            return '模型未给出'
         prefixes = ['理想买入点：', '次优买入点：', '止损位：', '目标位：',
                      '理想买入点:', '次优买入点:', '止损位:', '目标位:']
         for prefix in prefixes:
             if value.startswith(prefix):
                 return value[len(prefix):]
         return value
+
+    @staticmethod
+    def _format_significant_digits(value: Any, digits: int = 3) -> str:
+        """Format numeric-looking values with significant digits for reports."""
+        if value is None:
+            return 'N/A'
+        if isinstance(value, str):
+            value = value.strip()
+            if not value or value in ('N/A', '-', '—', 'None'):
+                return 'N/A'
+            try:
+                value = float(value)
+            except (TypeError, ValueError):
+                return value
+        if isinstance(value, bool):
+            return str(value)
+        if isinstance(value, (int, float)):
+            try:
+                return format(float(value), f'.{digits}g')
+            except (TypeError, ValueError):
+                return str(value)
+        return str(value)
 
     def _get_signal_level(self, result: AnalysisResult) -> tuple:
         """
@@ -912,7 +934,7 @@ class NotificationService(
                     if trend_data:
                         is_bullish = "✅ 是" if trend_data.get('is_bullish', False) else "❌ 否"
                         report_lines.extend([
-                            f"**均线排列**: {trend_data.get('ma_alignment', 'N/A')} | 多头排列: {is_bullish} | 趋势强度: {trend_data.get('trend_score', 'N/A')}/100",
+                            f"**均线排列**: {trend_data.get('ma_alignment', 'N/A')} | 多头排列: {is_bullish} | 趋势强度: {self._format_significant_digits(trend_data.get('trend_score', 'N/A'))}/100",
                             "",
                         ])
                     # 价格位置
@@ -922,19 +944,19 @@ class NotificationService(
                         report_lines.extend([
                             "| 价格指标 | 数值 |",
                             "|---------|------|",
-                            f"| 当前价 | {price_data.get('current_price', 'N/A')} |",
-                            f"| MA5 | {price_data.get('ma5', 'N/A')} |",
-                            f"| MA10 | {price_data.get('ma10', 'N/A')} |",
-                            f"| MA20 | {price_data.get('ma20', 'N/A')} |",
-                            f"| 乖离率(MA5) | {price_data.get('bias_ma5', 'N/A')}% {bias_emoji}{bias_status} |",
-                            f"| 支撑位 | {price_data.get('support_level', 'N/A')} |",
-                            f"| 压力位 | {price_data.get('resistance_level', 'N/A')} |",
+                            f"| 当前价 | {self._format_significant_digits(price_data.get('current_price', 'N/A'))} |",
+                            f"| MA5 | {self._format_significant_digits(price_data.get('ma5', 'N/A'))} |",
+                            f"| MA10 | {self._format_significant_digits(price_data.get('ma10', 'N/A'))} |",
+                            f"| MA20 | {self._format_significant_digits(price_data.get('ma20', 'N/A'))} |",
+                            f"| 乖离率(MA5) | {self._format_significant_digits(price_data.get('bias_ma5', 'N/A'))}% {bias_emoji}{bias_status} |",
+                            f"| 支撑位 | {self._format_significant_digits(price_data.get('support_level', 'N/A'))} |",
+                            f"| 压力位 | {self._format_significant_digits(price_data.get('resistance_level', 'N/A'))} |",
                             "",
                         ])
                     # 量能分析
                     if vol_data:
                         report_lines.extend([
-                            f"**量能**: 量比 {vol_data.get('volume_ratio', 'N/A')} ({vol_data.get('volume_status', '')}) | 换手率 {vol_data.get('turnover_rate', 'N/A')}%",
+                            f"**量能**: 量比 {self._format_significant_digits(vol_data.get('volume_ratio', 'N/A'))} ({vol_data.get('volume_status', '')}) | 换手率 {self._format_significant_digits(vol_data.get('turnover_rate', 'N/A'))}%",
                             f"💡 *{vol_data.get('volume_meaning', '')}*",
                             "",
                         ])
@@ -943,7 +965,7 @@ class NotificationService(
                         chip_health = chip_data.get('chip_health', 'N/A')
                         chip_emoji = "✅" if chip_health == "健康" else ("⚠️" if chip_health == "一般" else "🚨")
                         report_lines.extend([
-                            f"**筹码**: 获利比例 {chip_data.get('profit_ratio', 'N/A')} | 平均成本 {chip_data.get('avg_cost', 'N/A')} | 集中度 {chip_data.get('concentration', 'N/A')} {chip_emoji}{chip_health}",
+                            f"**筹码**: 获利比例 {self._format_significant_digits(chip_data.get('profit_ratio', 'N/A'))} | 平均成本 {self._format_significant_digits(chip_data.get('avg_cost', 'N/A'))} | 集中度 {self._format_significant_digits(chip_data.get('concentration', 'N/A'))} {chip_emoji}{chip_health}",
                             "",
                         ])
                 
