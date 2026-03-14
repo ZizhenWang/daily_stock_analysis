@@ -1,5 +1,5 @@
 [Unit]
-Description=Daily Stock Analysis service
+Description=Daily Stock Analysis scheduled runner
 After=network-online.target
 Wants=network-online.target
 
@@ -8,12 +8,9 @@ Type=simple
 User=<APP_USER>
 Group=<APP_USER>
 WorkingDirectory=<APP_DIR>
-Environment=HOST=0.0.0.0
-Environment=PORT=8000
-Environment=WEBUI_AUTO_BUILD=false
 Environment=PYTHONUNBUFFERED=1
 Environment=PATH=/usr/local/bin:/usr/bin:/bin
-ExecStart=<APP_DIR>/scripts/start-server-ubuntu.sh
+ExecStart=<APP_DIR>/scripts/start-server-ubuntu.sh --schedule --no-run-immediately
 Restart=always
 RestartSec=30
 TimeoutStartSec=300

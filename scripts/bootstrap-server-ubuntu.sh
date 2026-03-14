@@ -9,6 +9,7 @@ PYTHON_PACKAGE="${PYTHON_PACKAGE:-python3}"
 PYTHON_VENV_PACKAGE="${PYTHON_VENV_PACKAGE:-python3-venv}"
 NODE_SETUP="${NODE_SETUP:-true}"
 NODE_MAJOR="${NODE_MAJOR:-22}"
+APP_USER="${APP_USER:-}"
 
 if [[ "$(id -u)" -ne 0 ]]; then
   echo "[bootstrap] Please run as root: sudo $0" >&2
@@ -66,10 +67,15 @@ fi
 echo "[bootstrap] Preparing app directories"
 mkdir -p "${APP_DIR}/data" "${APP_DIR}/logs" "${APP_DIR}/reports"
 
+if [[ -n "${APP_USER}" ]]; then
+  echo "[bootstrap] Updating ownership to ${APP_USER}:${APP_USER}"
+  chown -R "${APP_USER}:${APP_USER}" "${APP_DIR}"
+fi
+
 echo "[bootstrap] Bootstrap completed"
 echo "[bootstrap] Next steps:"
 echo "  1. cd ${APP_DIR}"
 echo "  2. cp .env.example .env"
 echo "  3. Edit .env and set STOCK_LIST / LLM_BACKEND / notification configs"
-echo "  4. Run: codex login"
+echo "  4. Run: codex login --device-auth"
 echo "  5. Run: ./scripts/start-server-ubuntu.sh --llm-smoke-test"

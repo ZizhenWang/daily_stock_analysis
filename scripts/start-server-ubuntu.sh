@@ -9,6 +9,17 @@ HOST="${HOST:-0.0.0.0}"
 PORT="${PORT:-8000}"
 WEBUI_AUTO_BUILD="${WEBUI_AUTO_BUILD:-false}"
 
+ensure_writable_dir() {
+  local dir_path="$1"
+  mkdir -p "${dir_path}"
+  if [[ ! -w "${dir_path}" ]]; then
+    echo "[server-start] Directory is not writable: ${dir_path}" >&2
+    echo "[server-start] Fix ownership, for example:" >&2
+    echo "  sudo chown -R $(id -un):$(id -gn) ${APP_DIR}" >&2
+    exit 1
+  fi
+}
+
 pick_python() {
   if [[ -n "${PYTHON_BIN:-}" ]]; then
     printf '%s\n' "${PYTHON_BIN}"
@@ -32,12 +43,16 @@ PYTHON_CMD="$(pick_python)"
 
 cd "${APP_DIR}"
 
-mkdir -p data logs reports
+ensure_writable_dir data
+ensure_writable_dir logs
+ensure_writable_dir reports
 
 if [[ ! -d "${VENV_DIR}" ]]; then
   echo "[server-start] Creating isolated virtualenv at ${VENV_DIR}"
   "${PYTHON_CMD}" -m venv "${VENV_DIR}"
 fi
+
+ensure_writable_dir "${VENV_DIR}"
 
 VENV_PYTHON="${VENV_DIR}/bin/python"
 VENV_PIP="${VENV_DIR}/bin/pip"

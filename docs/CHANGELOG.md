@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - 🖥️ **Ubuntu server startup script** — added `scripts/start-server-ubuntu.sh` to bootstrap an isolated `.server-venv` and start `--serve-only` on Ubuntu without polluting the system Python environment
 - 🧱 **Ubuntu bootstrap script** — added `scripts/bootstrap-server-ubuntu.sh` to install system packages, Node.js/npm, and the `codex` CLI before the isolated app startup step
 - 🧰 **Systemd service template** — added `scripts/stock-analyzer.service.example` for Ubuntu/server deployments using the isolated startup script
+- ⏰ **Dedicated schedule service template** — added `scripts/stock-analyzer-schedule.service.example` so Web/API serving and daily scheduled analysis can run as separate systemd units while sharing the same repo state
+- 📘 **Server operations handbook** — added `docs/server-ops.md` to document day-2 operations for the Ubuntu + systemd + Codex deployment flow
 - 🗑️ **History batch deletion** — Web UI now supports multi-selection and batch deletion of analysis history; added `POST /api/v1/history/batch-delete` endpoint and `ConfirmDialog` component.
 - 🔐 **Auth settings API** — new `POST /api/v1/auth/settings` endpoint to enable or disable Web authentication at runtime and set the initial admin password when needed
 - openclaw Skill 集成指南 — 新增 [docs/openclaw-skill-integration.md](openclaw-skill-integration.md)，说明如何通过 openclaw Skill 调用 DSA API

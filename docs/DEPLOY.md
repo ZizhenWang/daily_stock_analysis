@@ -2,6 +2,8 @@
 
 本文档介绍如何将 A股自选股智能分析系统部署到服务器。
 
+如需部署完成后的日常运维命令速查，可参考 [服务器运维手册](server-ops.md)。
+
 ## 📋 部署方案对比
 
 | 方案 | 优点 | 缺点 | 推荐场景 |
@@ -133,7 +135,7 @@ nohup python main.py --schedule > /dev/null 2>&1 &
 ```bash
 cd /opt/stock-analyzer
 chmod +x ./scripts/bootstrap-server-ubuntu.sh
-sudo ./scripts/bootstrap-server-ubuntu.sh
+sudo APP_USER=stock ./scripts/bootstrap-server-ubuntu.sh
 ```
 
 这个脚本会：
@@ -141,11 +143,12 @@ sudo ./scripts/bootstrap-server-ubuntu.sh
 - 安装 Node.js 和 `npm`
 - 通过 `npm install -g @openai/codex` 安装 `codex` CLI
 - 创建 `data/`、`logs/`、`reports/`
+- 如果传入 `APP_USER=stock`，会顺手把项目目录属主修正为 `stock:stock`
 
 完成后继续：
 
 ```bash
-codex login
+codex login --device-auth
 ./scripts/start-server-ubuntu.sh --llm-smoke-test
 ./scripts/start-server-ubuntu.sh
 ```
@@ -171,10 +174,17 @@ chmod +x ./scripts/start-server-ubuntu.sh
 - 默认启动命令：`python main.py --serve-only --host 0.0.0.0 --port 8000`
 - 不会修改系统 Python 包，适合与其他服务共存
 - 启动脚本会自动安装/更新仓库 Python 依赖到 `.server-venv`，但不会执行 `apt` 或安装 `codex` CLI
+- 如果 `data/`、`logs/`、`reports/` 或 `.server-venv` 不可写，启动脚本会提前报错并提示修复属主
 - 如需改端口，可使用：`HOST=0.0.0.0 PORT=8010 ./scripts/start-server-ubuntu.sh`
 - 如需运行其他命令，可直接把参数传给脚本，例如：`./scripts/start-server-ubuntu.sh --schedule`
 
-### 1. 创建服务文件
+推荐拆成两个 service，共用同一个项目目录、`.env`、数据库和报告目录：
+- `stock-analyzer.service`：常驻 Web/API 服务，运行 `--serve-only`
+- `stock-analyzer-schedule.service`：常驻定时调度器，运行 `--schedule --no-run-immediately`
+
+这样两者共享绝大部分信息，但职责清晰，不会互相覆盖。
+
+### 1. 创建 Web/API 服务文件
 
 ```bash
 cp ./scripts/stock-analyzer.service.example /tmp/stock-analyzer.service
@@ -187,6 +197,7 @@ vim /tmp/stock-analyzer.service
 
 模板文件位置：
 - `scripts/stock-analyzer.service.example`
+- `scripts/stock-analyzer-schedule.service.example`
 
 替换后，将服务文件复制到 systemd 目录：
 
@@ -206,7 +217,7 @@ Environment=PORT=8000
 Environment=WEBUI_AUTO_BUILD=false
 Environment=PYTHONUNBUFFERED=1
 Environment=PATH=/usr/local/bin:/usr/bin:/bin
-ExecStart=<APP_DIR>/scripts/start-server-ubuntu.sh --schedule
+ExecStart=<APP_DIR>/scripts/start-server-ubuntu.sh
 Restart=always
 RestartSec=30
 TimeoutStartSec=300
@@ -222,36 +233,86 @@ WantedBy=multi-user.target
 sudo cp /tmp/stock-analyzer.service /etc/systemd/system/stock-analyzer.service
 ```
 
-### 2. 启动服务
+### 2. 创建定时调度服务文件
+
+```bash
+cp ./scripts/stock-analyzer-schedule.service.example /tmp/stock-analyzer-schedule.service
+vim /tmp/stock-analyzer-schedule.service
+```
+
+内容如下：
+
+```ini
+[Unit]
+Description=Daily Stock Analysis scheduled runner
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=<APP_USER>
+Group=<APP_USER>
+WorkingDirectory=<APP_DIR>
+Environment=PYTHONUNBUFFERED=1
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+ExecStart=<APP_DIR>/scripts/start-server-ubuntu.sh --schedule --no-run-immediately
+Restart=always
+RestartSec=30
+TimeoutStartSec=300
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target
+```
+
+安装到 systemd：
+
+```bash
+sudo cp /tmp/stock-analyzer-schedule.service /etc/systemd/system/stock-analyzer-schedule.service
+```
+
+### 3. 启动服务
 
 ```bash
 # 重载配置
 sudo systemctl daemon-reload
 
-# 启动服务
+# 启动 Web/API 服务
 sudo systemctl start stock-analyzer
+
+# 启动定时调度服务
+sudo systemctl start stock-analyzer-schedule
 
 # 开机自启
 sudo systemctl enable stock-analyzer
+sudo systemctl enable stock-analyzer-schedule
 
 # 查看状态
 sudo systemctl status stock-analyzer
+sudo systemctl status stock-analyzer-schedule
 
 # 查看日志
 journalctl -u stock-analyzer -f
+journalctl -u stock-analyzer-schedule -f
 ```
 
-如果你只想启动 Web/API 常驻服务，不跑进程内定时器，可以把 `ExecStart` 改成：
+如果你只想启动 Web/API 常驻服务，不跑进程内定时器，可以只安装 `stock-analyzer.service`。
+
+如果你需要改端口，例如 `18000`，可直接修改 Web/API 服务中的：
 
 ```ini
-ExecStart=<APP_DIR>/scripts/start-server-ubuntu.sh
+Environment=PORT=18000
 ```
 
-如果你需要改端口，例如 `8010`，可直接修改：
+如果你希望每天早上 08:00 运行，修改 `.env`：
 
-```ini
-Environment=PORT=8010
+```env
+SCHEDULE_TIME=08:00
 ```
+
+注意：
+- `stock-analyzer-schedule.service` 使用 `--no-run-immediately`，所以服务启动时不会先跑一轮
+- 它只会等到 `.env` 中的 `SCHEDULE_TIME` 到点再执行
 
 ---
 
@@ -276,7 +337,7 @@ Environment=PORT=8010
 codex --version
 
 # 2. 登录
-codex login
+codex login --device-auth
 
 # 3. 在项目目录探活
 cd /opt/stock-analyzer

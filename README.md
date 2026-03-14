@@ -368,8 +368,8 @@ LITELLM_MODEL=openai/deepseek-chat
 > ```bash
 > ./scripts/start-server-ubuntu.sh
 > ```
-> 如需先安装 Ubuntu 24.04 的系统依赖和 `codex` CLI，可先运行 [`scripts/bootstrap-server-ubuntu.sh`](/Users/zizhen/Documents/repos/codex/daily_stock_analysis/scripts/bootstrap-server-ubuntu.sh)。
-> 如需开机自启，可直接参考仓库模板 [`scripts/stock-analyzer.service.example`](/Users/zizhen/Documents/repos/codex/daily_stock_analysis/scripts/stock-analyzer.service.example) 配置 `systemd` 服务。
+> 如需先安装 Ubuntu 24.04 的系统依赖和 `codex` CLI，可先运行 [`scripts/bootstrap-server-ubuntu.sh`](/Users/zizhen/Documents/repos/codex/daily_stock_analysis/scripts/bootstrap-server-ubuntu.sh)；推荐带上 `APP_USER=stock`，顺手修正项目目录属主。
+> 如需开机自启，可参考仓库模板 [`scripts/stock-analyzer.service.example`](/Users/zizhen/Documents/repos/codex/daily_stock_analysis/scripts/stock-analyzer.service.example)（Web/API 常驻）和 [`scripts/stock-analyzer-schedule.service.example`](/Users/zizhen/Documents/repos/codex/daily_stock_analysis/scripts/stock-analyzer-schedule.service.example)（定时调度）。
 
 ## 🗺️ Roadmap
 
