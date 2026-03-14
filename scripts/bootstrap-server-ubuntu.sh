@@ -5,8 +5,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 INSTALL_CODEX="${INSTALL_CODEX:-true}"
-PYTHON_PACKAGE="${PYTHON_PACKAGE:-python3.11}"
-PYTHON_VENV_PACKAGE="${PYTHON_VENV_PACKAGE:-python3.11-venv}"
+PYTHON_PACKAGE="${PYTHON_PACKAGE:-python3}"
+PYTHON_VENV_PACKAGE="${PYTHON_VENV_PACKAGE:-python3-venv}"
 NODE_SETUP="${NODE_SETUP:-true}"
 NODE_MAJOR="${NODE_MAJOR:-22}"
 
@@ -46,6 +46,13 @@ if [[ "${NODE_SETUP}" == "true" ]]; then
   apt-get update
   apt-get install -y nodejs
 fi
+
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "[bootstrap] python3 is not available after package installation" >&2
+  exit 1
+fi
+
+echo "[bootstrap] Detected Python: $(python3 --version)"
 
 if [[ "${INSTALL_CODEX}" == "true" ]]; then
   if ! command -v npm >/dev/null 2>&1; then

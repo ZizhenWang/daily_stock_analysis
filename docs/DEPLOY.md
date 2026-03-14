@@ -92,10 +92,10 @@ docker-compose -f ./docker/docker-compose.yml exec stock-analyzer python main.py
 ```bash
 # 安装 Python 3.10+
 sudo apt update
-sudo apt install -y python3.10 python3.10-venv python3-pip
+sudo apt install -y python3 python3-venv python3-pip
 
 # 创建虚拟环境
-python3.10 -m venv /opt/stock-analyzer/venv
+python3 -m venv /opt/stock-analyzer/venv
 source /opt/stock-analyzer/venv/bin/activate
 ```
 
@@ -137,7 +137,7 @@ sudo ./scripts/bootstrap-server-ubuntu.sh
 ```
 
 这个脚本会：
-- 安装 Python 3.11、`python3.11-venv`、`pip`
+- 安装系统默认 `python3`、`python3-venv`、`pip`
 - 安装 Node.js 和 `npm`
 - 通过 `npm install -g @openai/codex` 安装 `codex` CLI
 - 创建 `data/`、`logs/`、`reports/`
