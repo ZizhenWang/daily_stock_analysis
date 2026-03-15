@@ -37,16 +37,26 @@ class WatchlistService:
         *,
         active_only: bool = False,
         analyzable_only: bool = False,
+        active: Optional[bool] = None,
         market: Optional[str] = None,
         security_type: Optional[str] = None,
+        q: Optional[str] = None,
         tag: Optional[str] = None,
+        sector_tag: Optional[str] = None,
+        concept_tag: Optional[str] = None,
+        custom_tag: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         return self._db.get_watchlist_items(
             active_only=active_only,
             analyzable_only=analyzable_only,
+            active=active,
             market=market,
             security_type=security_type,
+            q=q,
             tag=tag,
+            sector_tag=sector_tag,
+            concept_tag=concept_tag,
+            custom_tag=custom_tag,
         )
 
     def get_default_analysis_symbols(self) -> List[str]:

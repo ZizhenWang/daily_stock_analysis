@@ -65,17 +65,27 @@ def _get_watchlist_service() -> WatchlistService:
 def list_watchlist(
     active_only: bool = Query(False),
     analyzable_only: bool = Query(False),
+    active: Optional[bool] = Query(None),
     market: Optional[str] = Query(None),
     security_type: Optional[str] = Query(None),
+    q: Optional[str] = Query(None, description="按代码/名称/备注模糊筛选"),
     tag: Optional[str] = Query(None),
+    sector_tag: Optional[str] = Query(None, description="按领域标签筛选，多个用逗号分隔"),
+    concept_tag: Optional[str] = Query(None, description="按概念标签筛选，多个用逗号分隔"),
+    custom_tag: Optional[str] = Query(None, description="按自定义标签筛选，多个用逗号分隔"),
 ) -> WatchlistListResponse:
     service = _get_watchlist_service()
     items = service.list_items(
         active_only=active_only,
         analyzable_only=analyzable_only,
+        active=active,
         market=market,
         security_type=security_type,
+        q=q,
         tag=tag,
+        sector_tag=sector_tag,
+        concept_tag=concept_tag,
+        custom_tag=custom_tag,
     )
     return WatchlistListResponse(total=len(items), items=[WatchlistItem.model_validate(item) for item in items])
 

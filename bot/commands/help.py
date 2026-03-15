@@ -100,6 +100,8 @@ class HelpCommand(BotCommand):
             f"• {prefix}market - 查看大盘复盘",
             "",
             f"• {prefix}batch - 批量分析自选股",
+            "",
+            f"• {prefix}watchlist add AAPL sector=AI,消费电子 tag=观察 - 通过 Bot 加入 watchlist",
         ])
         
         return "\n".join(lines)

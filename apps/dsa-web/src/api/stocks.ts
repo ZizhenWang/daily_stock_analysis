@@ -1,5 +1,6 @@
 import apiClient from './index';
 import type {
+  WatchlistFilterParams,
   WatchlistItem,
   WatchlistItemInput,
   WatchlistListResponse,
@@ -59,20 +60,19 @@ export const stocksApi = {
     throw new Error('请提供文件或粘贴文本');
   },
 
-  async getWatchlist(params?: {
-    activeOnly?: boolean;
-    analyzableOnly?: boolean;
-    market?: string;
-    securityType?: string;
-    tag?: string;
-  }): Promise<WatchlistListResponse> {
+  async getWatchlist(params?: WatchlistFilterParams): Promise<WatchlistListResponse> {
     const response = await apiClient.get('/api/v1/stocks/watchlist', {
       params: {
         active_only: params?.activeOnly,
         analyzable_only: params?.analyzableOnly,
+        active: params?.active,
         market: params?.market,
         security_type: params?.securityType,
+        q: params?.q,
         tag: params?.tag,
+        sector_tag: params?.sectorTag,
+        concept_tag: params?.conceptTag,
+        custom_tag: params?.customTag,
       },
     });
     const data = response.data as {

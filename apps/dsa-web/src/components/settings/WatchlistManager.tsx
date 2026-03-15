@@ -44,6 +44,13 @@ function tagsToCsv(tags: string[]): string {
   return tags.join(', ');
 }
 
+function matchesTagFilter(tags: string[], rawFilter: string): boolean {
+  const terms = csvToTags(rawFilter).map((item) => item.toLowerCase());
+  if (!terms.length) return true;
+  const loweredTags = tags.map((tag) => tag.toLowerCase());
+  return terms.every((term) => loweredTags.some((tag) => tag.includes(term)));
+}
+
 function itemToDraft(item: WatchlistItem): DraftState {
   return {
     id: item.id,
@@ -79,9 +86,14 @@ export const WatchlistManager: React.FC<WatchlistManagerProps> = ({ disabled }) 
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState<DraftState>(EMPTY_DRAFT);
+  const [filterQuery, setFilterQuery] = useState('');
   const [filterMarket, setFilterMarket] = useState('');
   const [filterType, setFilterType] = useState('');
+  const [filterActive, setFilterActive] = useState<'all' | 'active' | 'inactive'>('all');
   const [filterTag, setFilterTag] = useState('');
+  const [filterSectorTag, setFilterSectorTag] = useState('');
+  const [filterConceptTag, setFilterConceptTag] = useState('');
+  const [filterCustomTag, setFilterCustomTag] = useState('');
   const [relationTargetId, setRelationTargetId] = useState<number | ''>('');
   const [relationType, setRelationType] = useState<WatchlistRelationType>('related_to');
 
@@ -105,15 +117,25 @@ export const WatchlistManager: React.FC<WatchlistManagerProps> = ({ disabled }) 
 
   const filteredItems = useMemo(() => {
     return items.filter((item) => {
+      const query = filterQuery.trim().toLowerCase();
+      if (query) {
+        const haystack = [item.symbol, item.name ?? '', item.notes ?? ''].join(' ').toLowerCase();
+        if (!haystack.includes(query)) return false;
+      }
       if (filterMarket && item.market !== filterMarket) return false;
       if (filterType && item.securityType !== filterType) return false;
+      if (filterActive === 'active' && !item.active) return false;
+      if (filterActive === 'inactive' && item.active) return false;
       if (filterTag) {
         const allTags = [...item.sectorTags, ...item.conceptTags, ...item.customTags];
-        if (!allTags.some((tag) => tag.includes(filterTag.trim()))) return false;
+        if (!matchesTagFilter(allTags, filterTag)) return false;
       }
+      if (!matchesTagFilter(item.sectorTags, filterSectorTag)) return false;
+      if (!matchesTagFilter(item.conceptTags, filterConceptTag)) return false;
+      if (!matchesTagFilter(item.customTags, filterCustomTag)) return false;
       return true;
     });
-  }, [filterMarket, filterTag, filterType, items]);
+  }, [filterActive, filterConceptTag, filterCustomTag, filterMarket, filterQuery, filterSectorTag, filterTag, filterType, items]);
 
   const relationCandidates = useMemo(
     () => items.filter((item) => item.id !== draft.id),
@@ -235,11 +257,18 @@ export const WatchlistManager: React.FC<WatchlistManagerProps> = ({ disabled }) 
           <div className="mb-3 flex flex-wrap items-center gap-2 text-xs text-secondary">
             <span>总数 {items.length}</span>
             <span>启用 {activeCount}</span>
+            <span>筛选后 {filteredItems.length}</span>
           </div>
-          <div className="mb-3 grid gap-2 md:grid-cols-3">
+          <div className="mb-3 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
             <input
               className="rounded-lg border border-white/16 bg-card/60 px-2 py-2 text-sm text-white"
-              placeholder="按标签筛选"
+              placeholder="按代码/名称/备注筛选"
+              value={filterQuery}
+              onChange={(e) => setFilterQuery(e.target.value)}
+            />
+            <input
+              className="rounded-lg border border-white/16 bg-card/60 px-2 py-2 text-sm text-white"
+              placeholder="按任意标签筛选（逗号分隔）"
               value={filterTag}
               onChange={(e) => setFilterTag(e.target.value)}
             />
@@ -258,6 +287,29 @@ export const WatchlistManager: React.FC<WatchlistManagerProps> = ({ disabled }) 
               <option value="fund">基金</option>
               <option value="other">其他</option>
             </select>
+            <select className="rounded-lg border border-white/16 bg-card/60 px-2 py-2 text-sm text-white" value={filterActive} onChange={(e) => setFilterActive(e.target.value as typeof filterActive)}>
+              <option value="all">全部状态</option>
+              <option value="active">仅启用</option>
+              <option value="inactive">仅停用</option>
+            </select>
+            <input
+              className="rounded-lg border border-white/16 bg-card/60 px-2 py-2 text-sm text-white"
+              placeholder="领域标签筛选（逗号分隔）"
+              value={filterSectorTag}
+              onChange={(e) => setFilterSectorTag(e.target.value)}
+            />
+            <input
+              className="rounded-lg border border-white/16 bg-card/60 px-2 py-2 text-sm text-white"
+              placeholder="概念标签筛选（逗号分隔）"
+              value={filterConceptTag}
+              onChange={(e) => setFilterConceptTag(e.target.value)}
+            />
+            <input
+              className="rounded-lg border border-white/16 bg-card/60 px-2 py-2 text-sm text-white"
+              placeholder="自定义标签筛选（逗号分隔）"
+              value={filterCustomTag}
+              onChange={(e) => setFilterCustomTag(e.target.value)}
+            />
           </div>
 
           <div className="max-h-[480px] overflow-auto rounded-lg border border-white/8">
@@ -282,7 +334,12 @@ export const WatchlistManager: React.FC<WatchlistManagerProps> = ({ disabled }) 
                       {(item.market ?? '-').toUpperCase()} / {item.securityType.toUpperCase()}
                     </td>
                     <td className="px-3 py-2 text-xs">
-                      {[...item.sectorTags, ...item.conceptTags, ...item.customTags].slice(0, 4).join(' / ') || '-'}
+                      <div className="space-y-1">
+                        {item.sectorTags.length ? <div><span className="text-muted">领域:</span> {item.sectorTags.join(', ')}</div> : null}
+                        {item.conceptTags.length ? <div><span className="text-muted">概念:</span> {item.conceptTags.join(', ')}</div> : null}
+                        {item.customTags.length ? <div><span className="text-muted">自定义:</span> {item.customTags.join(', ')}</div> : null}
+                        {!item.sectorTags.length && !item.conceptTags.length && !item.customTags.length ? '-' : null}
+                      </div>
                     </td>
                     <td className="px-3 py-2">
                       <button type="button" className={`rounded-full px-2 py-1 text-xs ${item.active ? 'bg-emerald-500/20 text-emerald-300' : 'bg-white/8 text-muted'}`} onClick={() => void handleToggleActive(item)} disabled={disabled}>
@@ -346,9 +403,9 @@ export const WatchlistManager: React.FC<WatchlistManagerProps> = ({ disabled }) 
               <input type="checkbox" checked={draft.active} onChange={(e) => setDraft((prev) => ({ ...prev, active: e.target.checked }))} />
               默认分析启用
             </label>
-            <input className="rounded-lg border border-white/16 bg-card/60 px-2 py-2 text-sm text-white" placeholder="领域标签，如 AI, 半导体" value={draft.sectorTags} onChange={(e) => setDraft((prev) => ({ ...prev, sectorTags: e.target.value }))} />
-            <input className="rounded-lg border border-white/16 bg-card/60 px-2 py-2 text-sm text-white" placeholder="概念标签，如 果链, 航天" value={draft.conceptTags} onChange={(e) => setDraft((prev) => ({ ...prev, conceptTags: e.target.value }))} />
-            <input className="rounded-lg border border-white/16 bg-card/60 px-2 py-2 text-sm text-white" placeholder="自定义标签" value={draft.customTags} onChange={(e) => setDraft((prev) => ({ ...prev, customTags: e.target.value }))} />
+            <input className="rounded-lg border border-white/16 bg-card/60 px-2 py-2 text-sm text-white" placeholder="领域标签，如 AI, 半导体（逗号分隔，可多个）" value={draft.sectorTags} onChange={(e) => setDraft((prev) => ({ ...prev, sectorTags: e.target.value }))} />
+            <input className="rounded-lg border border-white/16 bg-card/60 px-2 py-2 text-sm text-white" placeholder="概念标签，如 果链, 航天（逗号分隔，可多个）" value={draft.conceptTags} onChange={(e) => setDraft((prev) => ({ ...prev, conceptTags: e.target.value }))} />
+            <input className="rounded-lg border border-white/16 bg-card/60 px-2 py-2 text-sm text-white" placeholder="自定义标签（逗号分隔，可多个）" value={draft.customTags} onChange={(e) => setDraft((prev) => ({ ...prev, customTags: e.target.value }))} />
             <textarea className="min-h-[72px] rounded-lg border border-white/16 bg-card/60 px-2 py-2 text-sm text-white" placeholder="备注" value={draft.notes} onChange={(e) => setDraft((prev) => ({ ...prev, notes: e.target.value }))} />
           </div>
 

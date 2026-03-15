@@ -35,6 +35,19 @@ export interface WatchlistListResponse {
   items: WatchlistItem[];
 }
 
+export interface WatchlistFilterParams {
+  activeOnly?: boolean;
+  analyzableOnly?: boolean;
+  active?: boolean;
+  market?: string;
+  securityType?: string;
+  q?: string;
+  tag?: string;
+  sectorTag?: string;
+  conceptTag?: string;
+  customTag?: string;
+}
+
 export interface WatchlistItemInput {
   symbol: string;
   name?: string | null;

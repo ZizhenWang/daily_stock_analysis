@@ -1564,9 +1564,14 @@ class DatabaseManager:
         *,
         active_only: bool = False,
         analyzable_only: bool = False,
+        active: Optional[bool] = None,
         market: Optional[str] = None,
         security_type: Optional[str] = None,
+        q: Optional[str] = None,
         tag: Optional[str] = None,
+        sector_tag: Optional[str] = None,
+        concept_tag: Optional[str] = None,
+        custom_tag: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """List structured watchlist items with outgoing relations."""
         with self.session_scope() as session:
@@ -1579,6 +1584,8 @@ class DatabaseManager:
             conditions = []
             if active_only:
                 conditions.append(WatchlistItem.active.is_(True))
+            if active is not None:
+                conditions.append(WatchlistItem.active.is_(bool(active)))
             if analyzable_only:
                 conditions.append(WatchlistItem.security_type.in_(ANALYZABLE_SECURITY_TYPES))
             if market:
@@ -1591,15 +1598,32 @@ class DatabaseManager:
             items = list(session.execute(stmt).scalars().all())
             relations_by_source = self._get_watchlist_relations_by_source(session, [item.id for item in items])
 
+            keyword = (q or "").strip().lower()
             tag_text = (tag or "").strip()
+            sector_terms = self._parse_tag_filter_terms(sector_tag)
+            concept_terms = self._parse_tag_filter_terms(concept_tag)
+            custom_terms = self._parse_tag_filter_terms(custom_tag)
+            generic_terms = self._parse_tag_filter_terms(tag_text)
             payload: List[Dict[str, Any]] = []
             for item in items:
                 row = self._watchlist_item_to_dict(item)
                 row["relations"] = relations_by_source.get(item.id, [])
-                if tag_text:
-                    haystack = row["sector_tags"] + row["concept_tags"] + row["custom_tags"]
-                    if tag_text not in haystack:
+                if keyword:
+                    symbol = str(row.get("symbol") or "").lower()
+                    name = str(row.get("name") or "").lower()
+                    notes = str(row.get("notes") or "").lower()
+                    if keyword not in symbol and keyword not in name and keyword not in notes:
                         continue
+                if generic_terms:
+                    haystack = row["sector_tags"] + row["concept_tags"] + row["custom_tags"]
+                    if not self._tags_match_terms(haystack, generic_terms):
+                        continue
+                if sector_terms and not self._tags_match_terms(row["sector_tags"], sector_terms):
+                    continue
+                if concept_terms and not self._tags_match_terms(row["concept_tags"], concept_terms):
+                    continue
+                if custom_terms and not self._tags_match_terms(row["custom_tags"], custom_terms):
+                    continue
                 payload.append(row)
             return payload
 
@@ -1852,6 +1876,23 @@ class DatabaseManager:
         if not isinstance(parsed, list):
             return []
         return normalize_tags([str(item) for item in parsed])
+
+    @staticmethod
+    def _parse_tag_filter_terms(value: Optional[str]) -> List[str]:
+        if not value:
+            return []
+        return normalize_tags([item.strip() for item in str(value).split(",")])
+
+    @staticmethod
+    def _tags_match_terms(tags: List[str], terms: List[str]) -> bool:
+        if not terms:
+            return True
+        lowered_tags = [str(tag).lower() for tag in tags]
+        for term in terms:
+            normalized = str(term).lower()
+            if not any(normalized in tag for tag in lowered_tags):
+                return False
+        return True
 
     def save_conversation_message(self, session_id: str, role: str, content: str) -> None:
         """

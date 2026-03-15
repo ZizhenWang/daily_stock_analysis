@@ -12,6 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Added
 - 🗂️ **Structured watchlist** — added DB-backed `watchlist_items` / `watchlist_relations`, structured tags (`sector_tags / concept_tags / custom_tags`), and relation types (`underlying / tracks / related_to`) for stock / ETF / option / index management
 - 🌐 **Watchlist management API + Web UI** — added watchlist CRUD / relation APIs under `/api/v1/stocks/watchlist*`, upgraded the Settings page from plain `STOCK_LIST` editing to a table-based watchlist manager, and made intelligent import write into the watchlist instead of editing `.env`
+- 🏷️ **Multi-tag watchlist filtering** — watchlist tags now explicitly support multiple values per category (`sector/concept/custom`), and the Web/API filtering experience now supports keyword, status, market/type, and category-specific tag filters
+- 🤖 **Bot watchlist management** — added `/watchlist add ...` and `/watchlist list ...` commands so Feishu / DingTalk users can add symbols into the structured watchlist without opening the Web UI
 - 🤖 **Codex backend smoke test** — added `LLM_BACKEND=codex|native` runtime switch, `CODEX_MODEL` / `CODEX_TIMEOUT_SECONDS` config, and `python main.py --llm-smoke-test` to verify Codex CLI integration without repo-managed LLM API keys
 - 🤖 **Codex runtime expansion** — analyzer main path, Agent `/ask`/`/chat` direct-answer mode, image stock extraction, and Agent model discovery now support `LLM_BACKEND=codex` without requiring repo-managed LLM API keys
 - 🖥️ **Ubuntu server startup script** — added `scripts/start-server-ubuntu.sh` to bootstrap an isolated `.server-venv` and start `--serve-only` on Ubuntu without polluting the system Python environment

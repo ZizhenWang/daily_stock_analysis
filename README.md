@@ -194,8 +194,10 @@
 当前版本默认使用**数据库 watchlist** 作为分析对象主数据源，支持：
 - 市场：A 股 / 港股 / 美股
 - 类型：`stock / etf / option / index / fund / other`
-- 标签：`sector_tags / concept_tags / custom_tags`
+- 标签：`sector_tags / concept_tags / custom_tags`（每类均支持多个标签）
 - 关系：`underlying / tracks / related_to`
+- 筛选：按代码/名称/备注、市场、类型、启停状态、多标签筛选
+- Bot 管理：支持通过 `/watchlist add ...` 与 `/watchlist list ...` 在飞书 / 钉钉等 Bot 中维护 watchlist
 
 兼容逻辑：
 - 首次启动且数据库 watchlist 为空时，会自动从 `.env` 的 `STOCK_LIST` 导入
@@ -353,6 +355,7 @@ LITELLM_MODEL=openai/deepseek-chat
 - **导出与发送**：可将会话导出为 .md 文件，或发送到已配置的通知渠道
 - **后台执行**：切换页面不中断分析，完成时 Dock 问股图标显示角标
 - **Bot 命令**：`/ask` 策略分析（支持多股对比）、`/chat` 自由对话
+- **Watchlist Bot 命令**：`/watchlist add AAPL sector=AI,消费电子 tag=观察` 可直接将标的加入结构化 watchlist；`/watchlist list market=cn active=true` 可快速查看当前标的池
 - **自定义策略**：在 `strategies/` 目录下新建 YAML 文件即可添加策略，无需写代码
 - **多 Agent 架构**（实验性）：设置 `AGENT_ARCH=multi` 启用 Technical → Intel → Risk → Strategy → Decision 多 Agent 级联编排，通过 `AGENT_ORCHESTRATOR_MODE` 控制深度（quick/standard/full/strategy）。超时或中间阶段 JSON 解析失败时，系统会优先保留已完成阶段结果并降级生成最小可用仪表盘，避免整份报告直接退回默认占位。详见 [完整配置指南](docs/full-guide.md)
 
