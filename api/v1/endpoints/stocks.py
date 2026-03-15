@@ -5,10 +5,11 @@
 ===================================
 
 职责：
-1. POST /api/v1/stocks/extract-from-image 从图片提取股票代码
-2. POST /api/v1/stocks/parse-import 解析 CSV/Excel/剪贴板
-3. GET /api/v1/stocks/{code}/quote 实时行情接口
-4. GET /api/v1/stocks/{code}/history 历史行情接口
+1. Watchlist 管理接口
+2. POST /api/v1/stocks/extract-from-image 从图片提取股票代码
+3. POST /api/v1/stocks/parse-import 解析 CSV/Excel/剪贴板
+4. GET /api/v1/stocks/{code}/quote 实时行情接口
+5. GET /api/v1/stocks/{code}/history 历史行情接口
 """
 
 import logging
@@ -22,6 +23,12 @@ from api.v1.schemas.stocks import (
     KLineData,
     StockHistoryResponse,
     StockQuote,
+    WatchlistImportResponse,
+    WatchlistItem,
+    WatchlistItemInput,
+    WatchlistListResponse,
+    WatchlistRelation,
+    WatchlistRelationInput,
 )
 from api.v1.schemas.common import ErrorResponse
 from src.services.image_stock_extractor import (
@@ -35,6 +42,7 @@ from src.services.import_parser import (
     parse_import_from_text,
 )
 from src.services.stock_service import StockService
+from src.services.watchlist_service import WatchlistService
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +50,136 @@ router = APIRouter()
 
 # 须在 /{stock_code} 路由之前定义
 ALLOWED_MIME_STR = ", ".join(ALLOWED_MIME)
+
+
+def _get_watchlist_service() -> WatchlistService:
+    return WatchlistService()
+
+
+@router.get(
+    "/watchlist",
+    response_model=WatchlistListResponse,
+    summary="获取结构化 watchlist",
+    description="返回数据库中的结构化 watchlist，支持按市场、资产类型和标签筛选。",
+)
+def list_watchlist(
+    active_only: bool = Query(False),
+    analyzable_only: bool = Query(False),
+    market: Optional[str] = Query(None),
+    security_type: Optional[str] = Query(None),
+    tag: Optional[str] = Query(None),
+) -> WatchlistListResponse:
+    service = _get_watchlist_service()
+    items = service.list_items(
+        active_only=active_only,
+        analyzable_only=analyzable_only,
+        market=market,
+        security_type=security_type,
+        tag=tag,
+    )
+    return WatchlistListResponse(total=len(items), items=[WatchlistItem.model_validate(item) for item in items])
+
+
+@router.post(
+    "/watchlist",
+    response_model=WatchlistItem,
+    summary="新增 watchlist 标的",
+)
+def create_watchlist_item(payload: WatchlistItemInput) -> WatchlistItem:
+    service = _get_watchlist_service()
+    try:
+        item = service.create_item({**payload.model_dump(), "source": "manual"})
+        return WatchlistItem.model_validate(item)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail={"error": "bad_request", "message": str(exc)})
+
+
+@router.put(
+    "/watchlist/{item_id}",
+    response_model=WatchlistItem,
+    summary="编辑 watchlist 标的",
+)
+def update_watchlist_item(item_id: int, payload: WatchlistItemInput) -> WatchlistItem:
+    service = _get_watchlist_service()
+    try:
+        item = service.update_item(item_id, payload.model_dump())
+        return WatchlistItem.model_validate(item)
+    except ValueError as exc:
+        status_code = 404 if "not found" in str(exc) else 400
+        raise HTTPException(status_code=status_code, detail={"error": "bad_request", "message": str(exc)})
+
+
+@router.delete(
+    "/watchlist/{item_id}",
+    summary="删除 watchlist 标的",
+)
+def delete_watchlist_item(item_id: int) -> dict:
+    service = _get_watchlist_service()
+    deleted = service.delete_item(item_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail={"error": "not_found", "message": "watchlist item not found"})
+    return {"success": True, "deleted": deleted}
+
+
+@router.post(
+    "/watchlist/{item_id}/active",
+    response_model=WatchlistItem,
+    summary="启用/停用 watchlist 标的",
+)
+def set_watchlist_item_active(item_id: int, active: bool = Query(...)) -> WatchlistItem:
+    service = _get_watchlist_service()
+    try:
+        item = service.update_item(item_id, {"active": active})
+        return WatchlistItem.model_validate(item)
+    except ValueError as exc:
+        status_code = 404 if "not found" in str(exc) else 400
+        raise HTTPException(status_code=status_code, detail={"error": "bad_request", "message": str(exc)})
+
+
+@router.post(
+    "/watchlist/relations",
+    response_model=WatchlistRelation,
+    summary="创建 watchlist 关系",
+)
+def create_watchlist_relation(payload: WatchlistRelationInput) -> WatchlistRelation:
+    service = _get_watchlist_service()
+    try:
+        relation = service.create_relation(payload.model_dump())
+        return WatchlistRelation.model_validate(relation)
+    except ValueError as exc:
+        status_code = 404 if "not found" in str(exc) else 400
+        raise HTTPException(status_code=status_code, detail={"error": "bad_request", "message": str(exc)})
+
+
+@router.delete(
+    "/watchlist/relations/{relation_id}",
+    summary="删除 watchlist 关系",
+)
+def delete_watchlist_relation(relation_id: int) -> dict:
+    service = _get_watchlist_service()
+    deleted = service.delete_relation(relation_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail={"error": "not_found", "message": "watchlist relation not found"})
+    return {"success": True, "deleted": deleted}
+
+
+@router.post(
+    "/watchlist/import-stock-list",
+    response_model=WatchlistImportResponse,
+    summary="从旧版 STOCK_LIST 导入 watchlist",
+)
+def import_watchlist_from_stock_list() -> WatchlistImportResponse:
+    from src.config import get_config
+
+    config = get_config()
+    stock_list = config._read_stock_list_from_env()
+    service = _get_watchlist_service()
+    imported_count = service.bootstrap_from_stock_list(stock_list)
+    items = service.list_items()
+    return WatchlistImportResponse(
+        imported_count=imported_count,
+        items=[WatchlistItem.model_validate(item) for item in items],
+    )
 
 
 @router.post(

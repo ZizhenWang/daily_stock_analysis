@@ -9,6 +9,7 @@ import {
   SettingsAlert,
   SettingsField,
   SettingsLoading,
+  WatchlistManager,
 } from '../components/settings';
 import { getCategoryDescriptionZh, getCategoryTitleZh } from '../utils/systemConfigI18n';
 
@@ -100,6 +101,8 @@ const SettingsPage: React.FC = () => {
         }
         return true;
       })
+      : activeCategory === 'base'
+        ? rawActiveItems.filter((item) => item.key !== 'STOCK_LIST')
       : rawActiveItems;
 
   return (
@@ -185,12 +188,8 @@ const SettingsPage: React.FC = () => {
           <section className="space-y-3 rounded-2xl border border-white/8 bg-card/60 p-4 backdrop-blur-sm">
             {activeCategory === 'base' ? (
               <div className="space-y-3">
+                <WatchlistManager disabled={isSaving || isLoading} />
                 <IntelligentImport
-                  stockListValue={
-                    (activeItems.find((i) => i.key === 'STOCK_LIST')?.value as string) ?? ''
-                  }
-                  configVersion={configVersion}
-                  maskToken={maskToken}
                   onMerged={() => void load()}
                   disabled={isSaving || isLoading}
                 />

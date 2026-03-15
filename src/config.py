@@ -45,6 +45,15 @@ SUPPORTED_LLM_CHANNEL_PROTOCOLS = ("openai", "anthropic", "gemini", "vertex_ai",
 _FALSEY_ENV_VALUES = {"0", "false", "no", "off"}
 
 
+def _parse_stock_list_text(stock_list_str: str) -> List[str]:
+    """Parse legacy comma-separated STOCK_LIST text into normalized symbols."""
+    return [
+        (c or "").strip().upper()
+        for c in stock_list_str.split(',')
+        if (c or "").strip()
+    ]
+
+
 def parse_env_bool(value: Optional[str], default: bool = False) -> bool:
     """Parse common truthy/falsey environment-style values."""
     if value is None:
@@ -603,6 +612,7 @@ class Config:
         """
         if cls._instance is None:
             cls._instance = cls._load_from_env()
+            cls._instance.refresh_stock_list()
         return cls._instance
     
     @classmethod
@@ -660,17 +670,9 @@ class Config:
                 os.environ['https_proxy'] = https_proxy
 
         
-        # 解析自选股列表（逗号分隔，统一为大写 Issue #355）
+        # 解析旧版自选股列表（首次启动时可自动导入数据库 watchlist）
         stock_list_str = os.getenv('STOCK_LIST', '')
-        stock_list = [
-            (c or "").strip().upper()
-            for c in stock_list_str.split(',')
-            if (c or "").strip()
-        ]
-        
-        # 如果没有配置，使用默认的示例股票
-        if not stock_list:
-            stock_list = ['600519', '000001', '300750']
+        stock_list = _parse_stock_list_text(stock_list_str)
         
         # === LiteLLM multi-key parsing ===
         # GEMINI_API_KEYS (comma-separated) > GEMINI_API_KEY (single)
@@ -1028,7 +1030,7 @@ class Config:
             fundamental_cache_ttl_seconds=int(os.getenv('FUNDAMENTAL_CACHE_TTL_SECONDS', '120')),
             fundamental_cache_max_entries=int(os.getenv('FUNDAMENTAL_CACHE_MAX_ENTRIES', '256'))
         )
-    
+
     @classmethod
     def _parse_litellm_yaml(cls, config_path: str) -> List[Dict[str, Any]]:
         """Parse a standard LiteLLM config YAML file into Router model_list.
@@ -1374,36 +1376,43 @@ class Config:
 
     def refresh_stock_list(self) -> None:
         """
-        热读取 STOCK_LIST 环境变量并更新配置中的自选股列表
-        
-        支持两种配置方式：
-        1. .env 文件（本地开发、定时任务模式） - 修改后下次执行自动生效
-        2. 系统环境变量（GitHub Actions、Docker） - 启动时固定，运行中不变
+        热读取默认分析标的列表。
+
+        优先从数据库 watchlist 读取 active=true 且可分析的资产；
+        若数据库为空，则使用兼容模式下的 STOCK_LIST，并在首次运行时尝试导入 watchlist。
         """
-        # 优先从 .env 文件读取最新配置，这样即使在容器环境中修改了 .env 文件，
-        # 也能获取到最新的股票列表配置
+        stock_list = self._read_stock_list_from_env()
+
+        try:
+            from src.services.watchlist_service import WatchlistService
+
+            service = WatchlistService()
+            service.bootstrap_from_stock_list(stock_list)
+            watchlist_codes = service.get_default_analysis_symbols()
+            if watchlist_codes or service.has_items():
+                self.stock_list = watchlist_codes
+                return
+        except Exception as exc:
+            logging.getLogger(__name__).warning(
+                "refresh_stock_list failed to use DB-backed watchlist, falling back to env STOCK_LIST: %s",
+                exc,
+            )
+
+        self.stock_list = stock_list
+
+    def _read_stock_list_from_env(self) -> List[str]:
+        """Read legacy STOCK_LIST from .env or process env for compatibility."""
         env_file = os.getenv("ENV_FILE")
         env_path = Path(env_file) if env_file else (Path(__file__).parent.parent / '.env')
         stock_list_str = ''
         if env_path.exists():
-            # 直接从 .env 文件读取最新的配置
             env_values = dotenv_values(env_path)
             stock_list_str = (env_values.get('STOCK_LIST') or '').strip()
 
-        # 如果 .env 文件不存在或未配置，才尝试从系统环境变量读取
         if not stock_list_str:
             stock_list_str = os.getenv('STOCK_LIST', '')
 
-        stock_list = [
-            (c or "").strip().upper()
-            for c in stock_list_str.split(',')
-            if (c or "").strip()
-        ]
-
-        if not stock_list:
-            stock_list = ['000001']
-
-        self.stock_list = stock_list
+        return _parse_stock_list_text(stock_list_str)
     
     def validate_structured(self) -> List[ConfigIssue]:
         """Return structured validation issues with severity levels.
@@ -1424,7 +1433,7 @@ class Config:
         if not self.stock_list:
             issues.append(ConfigIssue(
                 severity="error",
-                message="未配置自选股列表 (STOCK_LIST)",
+                message="未配置默认分析标的（watchlist / STOCK_LIST）",
                 field="STOCK_LIST",
             ))
 

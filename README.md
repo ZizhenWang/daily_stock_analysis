@@ -155,7 +155,7 @@
 
 | Secret 名称 | 说明 | 必填 |
 |------------|------|:----:|
-| `STOCK_LIST` | 自选股代码，如 `600519,hk00700,AAPL,TSLA` | ✅ |
+| `STOCK_LIST` | 旧版自选股代码入口，如 `600519,hk00700,AAPL,TSLA`；首次启动时会自动导入数据库 watchlist，之后数据库为主 | ✅ |
 | `TAVILY_API_KEYS` | [Tavily](https://tavily.com/) 搜索 API（新闻搜索） | 推荐 |
 | `MINIMAX_API_KEYS` | [MiniMax](https://platform.minimaxi.com/) Coding Plan Web Search（结构化搜索结果） | 可选 |
 | `SERPAPI_API_KEYS` | [SerpAPI](https://serpapi.com/baidu-search-api?utm_source=github_daily_stock_analysis) 全渠道搜索 | 可选 |
@@ -188,6 +188,19 @@
 >   - `fundamental_context.boards.data` = `sector_rankings`（板块涨跌榜，结构 `{top, bottom}`）；
 >   - `get_stock_info.belong_boards` = 个股所属板块列表；
 >   - `get_stock_info.boards` 为兼容别名，值与 `belong_boards` 相同（未来仅在大版本考虑移除）；
+
+### Watchlist（结构化标的池）
+
+当前版本默认使用**数据库 watchlist** 作为分析对象主数据源，支持：
+- 市场：A 股 / 港股 / 美股
+- 类型：`stock / etf / option / index / fund / other`
+- 标签：`sector_tags / concept_tags / custom_tags`
+- 关系：`underlying / tracks / related_to`
+
+兼容逻辑：
+- 首次启动且数据库 watchlist 为空时，会自动从 `.env` 的 `STOCK_LIST` 导入
+- 导入后，定时任务、WebUI、Bot 默认都读取数据库中 `active=true` 且可分析的 `stock/etf`
+- CLI 显式传入 `--stocks` 时，仍按命令行参数优先执行
 >   - `get_stock_info.sector_rankings` 与 `fundamental_context.boards.data` 保持一致。
 > - 板块涨跌榜采用固定回退顺序：`AkShare(EM->Sina) -> Tushare -> efinance`。
 

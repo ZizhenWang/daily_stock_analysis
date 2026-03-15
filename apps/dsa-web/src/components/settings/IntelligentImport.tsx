@@ -2,7 +2,6 @@ import type React from 'react';
 import { useCallback, useState } from 'react';
 import { getParsedApiError } from '../../api/error';
 import { stocksApi, type ExtractItem } from '../../api/stocks';
-import { systemConfigApi, SystemConfigConflictError } from '../../api/systemConfig';
 
 const IMG_EXT = ['.jpg', '.jpeg', '.png', '.webp', '.gif'];
 const IMG_MAX = 5 * 1024 * 1024; // 5MB
@@ -10,9 +9,6 @@ const FILE_MAX = 2 * 1024 * 1024; // 2MB
 const TEXT_MAX = 100 * 1024; // 100KB
 
 interface IntelligentImportProps {
-  stockListValue: string;
-  configVersion: string;
-  maskToken: string;
   onMerged: () => void;
   disabled?: boolean;
 }
@@ -84,9 +80,6 @@ function mergeItems(
 }
 
 export const IntelligentImport: React.FC<IntelligentImportProps> = ({
-  stockListValue,
-  configVersion,
-  maskToken,
   onMerged,
   disabled,
 }) => {
@@ -96,13 +89,6 @@ export const IntelligentImport: React.FC<IntelligentImportProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [pasteText, setPasteText] = useState('');
-
-  const parseCurrentList = useCallback(() => {
-    return stockListValue
-      .split(',')
-      .map((c) => c.trim())
-      .filter(Boolean);
-  }, [stockListValue]);
 
   const addItems = useCallback((newItems: ExtractItem[]) => {
     setItems((prev) => mergeItems(prev, newItems));
@@ -234,37 +220,27 @@ export const IntelligentImport: React.FC<IntelligentImportProps> = ({
   const mergeToWatchlist = useCallback(async () => {
     const toMerge = items.filter((i) => i.checked && i.code).map((i) => i.code!);
     if (toMerge.length === 0) return;
-    if (!configVersion) {
-      setError('请先加载配置后再合并');
-      return;
-    }
-    const current = parseCurrentList();
-    const merged = [...new Set([...current, ...toMerge])];
-    const value = merged.join(',');
 
     setIsMerging(true);
     setError(null);
     try {
-      await systemConfigApi.update({
-        configVersion,
-        maskToken,
-        reloadNow: true,
-        items: [{ key: 'STOCK_LIST', value }],
-      });
+      await Promise.all(
+        toMerge.map((symbol) =>
+          stocksApi.createWatchlistItem({
+            symbol,
+            active: true,
+          }),
+        ),
+      );
       setItems([]);
       setPasteText('');
       onMerged();
     } catch (e) {
-      if (e instanceof SystemConfigConflictError) {
-        onMerged();
-        setError('配置已更新，请再次点击「合并到自选股」');
-      } else {
-        setError(e instanceof Error ? e.message : '合并保存失败');
-      }
+      setError(e instanceof Error ? e.message : '合并保存失败');
     } finally {
       setIsMerging(false);
     }
-  }, [items, configVersion, maskToken, onMerged, parseCurrentList]);
+  }, [items, onMerged]);
 
   const validCount = items.filter((i) => i.code).length;
   const checkedCount = items.filter((i) => i.checked && i.code).length;
@@ -373,7 +349,7 @@ export const IntelligentImport: React.FC<IntelligentImportProps> = ({
             onClick={() => void mergeToWatchlist()}
             disabled={disabled || isMerging || checkedCount === 0}
           >
-            {isMerging ? '保存中...' : '合并到自选股'}
+            {isMerging ? '保存中...' : '加入 Watchlist'}
           </button>
         </div>
       )}

@@ -322,11 +322,16 @@ SCHEDULE_TIME=08:00
 
 | 配置项 | 说明 | 获取方式 |
 |--------|------|----------|
-| `STOCK_LIST` | 自选股列表 | 逗号分隔的股票代码 |
+| `STOCK_LIST` | 兼容导入用旧版自选股列表 | 首次启动时若数据库 watchlist 为空，会自动导入 |
 | `LLM_BACKEND` | LLM 后端，`codex` 或 `native` | `.env` |
 | `FEISHU_WEBHOOK_URL` / 其他通知渠道 | 推送结果到飞书/Telegram/企微等 | 各平台机器人 |
 
 > 如果你使用 `LLM_BACKEND=codex`，服务器上还需要可用的 `codex` CLI 和登录态，不要求在 `.env` 中配置 `OPENAI_API_KEY/GEMINI_API_KEY`。
+
+> Watchlist 升级说明：
+> - 首次部署或升级到本版本后，程序会在启动时检查数据库中的 watchlist；
+> - 若 watchlist 为空且 `.env` 中配置了 `STOCK_LIST`，会自动导入；
+> - 导入完成后，默认分析对象以数据库 watchlist 为主，WebUI 可直接进行新增/编辑/删除/启停管理。
 
 ### `codex` CLI 准备
 
@@ -351,7 +356,7 @@ cd /opt/stock-analyzer
 | 配置项 | 说明 | 获取方式 |
 |--------|------|----------|
 | `GEMINI_API_KEY` / `OPENAI_API_KEY` 等 | AI 分析必需 | 各模型平台 |
-| `STOCK_LIST` | 自选股列表 | 逗号分隔的股票代码 |
+| `STOCK_LIST` | 兼容导入用旧版自选股列表 | 数据库 watchlist 首次导入来源 |
 | `WECHAT_WEBHOOK_URL` | 微信推送 | 企业微信群机器人 |
 
 ### 可选配置项
@@ -525,7 +530,7 @@ git push -u origin main
 | `EMAIL_PASSWORD` | 邮箱授权码 | 可选* |
 | `SERVERCHAN3_SENDKEY` | Server酱³ Sendkey | 可选* |
 | `CUSTOM_WEBHOOK_URLS` | 自定义 Webhook（多个逗号分隔） | 可选* |
-| `STOCK_LIST` | 自选股列表，如 `600519,300750` | ✅ |
+| `STOCK_LIST` | 兼容导入用旧版自选股列表，如 `600519,300750` | ✅ |
 | `TAVILY_API_KEYS` | Tavily 搜索 API Key | 推荐 |
 | `MINIMAX_API_KEYS` | MiniMax Coding Plan Web Search | 可选 |
 | `SERPAPI_API_KEYS` | SerpAPI Key | 可选 |

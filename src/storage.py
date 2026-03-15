@@ -16,8 +16,10 @@ from contextlib import contextmanager
 import hashlib
 import json
 import logging
+import os
 import re
 from datetime import datetime, date, timedelta
+from pathlib import Path
 from typing import Optional, List, Dict, Any, TYPE_CHECKING, Tuple
 
 import pandas as pd
@@ -45,10 +47,18 @@ from sqlalchemy.orm import (
     declarative_base,
     sessionmaker,
     Session,
+    aliased,
 )
 from sqlalchemy.exc import IntegrityError
 
-from src.config import get_config
+from src.watchlist_utils import (
+    ANALYZABLE_SECURITY_TYPES,
+    SUPPORTED_RELATION_TYPES,
+    infer_watchlist_identity,
+    normalize_symbol_list,
+    normalize_tags,
+    normalize_watchlist_symbol,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -392,6 +402,54 @@ class BacktestSummary(Base):
     )
 
 
+class WatchlistItem(Base):
+    """结构化 watchlist 主表。"""
+
+    __tablename__ = 'watchlist_items'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    symbol = Column(String(32), nullable=False, index=True)
+    name = Column(String(128))
+    market = Column(String(8), index=True)
+    security_type = Column(String(16), nullable=False, default='stock', index=True)
+    active = Column(Boolean, nullable=False, default=True, index=True)
+    sector_tags = Column(Text, nullable=False, default='[]')
+    concept_tags = Column(Text, nullable=False, default='[]')
+    custom_tags = Column(Text, nullable=False, default='[]')
+    notes = Column(Text)
+    source = Column(String(32), default='manual', index=True)
+    created_at = Column(DateTime, default=datetime.now, index=True)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now, index=True)
+
+    __table_args__ = (
+        UniqueConstraint('symbol', name='uix_watchlist_symbol'),
+        Index('ix_watchlist_active_type', 'active', 'security_type'),
+    )
+
+
+class WatchlistRelation(Base):
+    """watchlist 标的关系表。"""
+
+    __tablename__ = 'watchlist_relations'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    source_item_id = Column(Integer, ForeignKey('watchlist_items.id'), nullable=False, index=True)
+    target_item_id = Column(Integer, ForeignKey('watchlist_items.id'), nullable=False, index=True)
+    relation_type = Column(String(32), nullable=False, index=True)
+    created_at = Column(DateTime, default=datetime.now, index=True)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now, index=True)
+
+    __table_args__ = (
+        UniqueConstraint(
+            'source_item_id',
+            'target_item_id',
+            'relation_type',
+            name='uix_watchlist_relation',
+        ),
+        Index('ix_watchlist_relation_source', 'source_item_id', 'relation_type'),
+    )
+
+
 class ConversationMessage(Base):
     """
     Agent 对话历史记录表
@@ -452,8 +510,9 @@ class DatabaseManager:
             return
         
         if db_url is None:
-            config = get_config()
-            db_url = config.get_db_url()
+            db_path = Path(os.getenv("DATABASE_PATH", "./data/stock_analysis.db"))
+            db_path.parent.mkdir(parents=True, exist_ok=True)
+            db_url = f"sqlite:///{db_path.absolute()}"
         
         # 创建数据库引擎
         self._engine = create_engine(
@@ -1453,6 +1512,346 @@ class DatabaseManager:
         raw_key = f"{code}|{title}|{source}|{date_str}"
         digest = hashlib.md5(raw_key.encode("utf-8")).hexdigest()
         return f"no-url:{code}:{digest}"
+
+    # ------------------------------------------------------------------
+    # Watchlist
+    # ------------------------------------------------------------------
+
+    def watchlist_has_items(self) -> bool:
+        """Return True when watchlist already contains at least one item."""
+        with self.session_scope() as session:
+            stmt = select(WatchlistItem.id).limit(1)
+            return session.execute(stmt).scalar() is not None
+
+    def bootstrap_watchlist_from_symbols(
+        self,
+        symbols: List[str],
+        *,
+        source: str = "env_bootstrap",
+    ) -> int:
+        """
+        Bootstrap watchlist from a plain symbol list once.
+
+        Only inserts when the watchlist table is empty.
+        """
+        normalized_symbols = normalize_symbol_list(symbols)
+        if not normalized_symbols:
+            return 0
+
+        with self.session_scope() as session:
+            existing = session.execute(select(WatchlistItem.id).limit(1)).scalar()
+            if existing is not None:
+                return 0
+
+            inserted = 0
+            for symbol in normalized_symbols:
+                market, security_type = infer_watchlist_identity(symbol)
+                session.add(
+                    WatchlistItem(
+                        symbol=symbol,
+                        name=None,
+                        market=market,
+                        security_type=security_type,
+                        active=True,
+                        source=source,
+                    )
+                )
+                inserted += 1
+            return inserted
+
+    def get_watchlist_items(
+        self,
+        *,
+        active_only: bool = False,
+        analyzable_only: bool = False,
+        market: Optional[str] = None,
+        security_type: Optional[str] = None,
+        tag: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """List structured watchlist items with outgoing relations."""
+        with self.session_scope() as session:
+            stmt = select(WatchlistItem).order_by(
+                desc(WatchlistItem.active),
+                WatchlistItem.market.asc(),
+                WatchlistItem.security_type.asc(),
+                WatchlistItem.symbol.asc(),
+            )
+            conditions = []
+            if active_only:
+                conditions.append(WatchlistItem.active.is_(True))
+            if analyzable_only:
+                conditions.append(WatchlistItem.security_type.in_(ANALYZABLE_SECURITY_TYPES))
+            if market:
+                conditions.append(WatchlistItem.market == market)
+            if security_type:
+                conditions.append(WatchlistItem.security_type == security_type)
+            if conditions:
+                stmt = stmt.where(and_(*conditions))
+
+            items = list(session.execute(stmt).scalars().all())
+            relations_by_source = self._get_watchlist_relations_by_source(session, [item.id for item in items])
+
+            tag_text = (tag or "").strip()
+            payload: List[Dict[str, Any]] = []
+            for item in items:
+                row = self._watchlist_item_to_dict(item)
+                row["relations"] = relations_by_source.get(item.id, [])
+                if tag_text:
+                    haystack = row["sector_tags"] + row["concept_tags"] + row["custom_tags"]
+                    if tag_text not in haystack:
+                        continue
+                payload.append(row)
+            return payload
+
+    def get_watchlist_codes(
+        self,
+        *,
+        active_only: bool = True,
+        analyzable_only: bool = True,
+    ) -> List[str]:
+        """Return default analysis symbols from watchlist."""
+        with self.session_scope() as session:
+            stmt = select(WatchlistItem.symbol).order_by(WatchlistItem.symbol.asc())
+            conditions = []
+            if active_only:
+                conditions.append(WatchlistItem.active.is_(True))
+            if analyzable_only:
+                conditions.append(WatchlistItem.security_type.in_(ANALYZABLE_SECURITY_TYPES))
+            if conditions:
+                stmt = stmt.where(and_(*conditions))
+            return [str(value).upper() for value in session.execute(stmt).scalars().all() if value]
+
+    def upsert_watchlist_item(
+        self,
+        *,
+        symbol: str,
+        name: Optional[str] = None,
+        market: Optional[str] = None,
+        security_type: Optional[str] = None,
+        active: bool = True,
+        sector_tags: Optional[List[str]] = None,
+        concept_tags: Optional[List[str]] = None,
+        custom_tags: Optional[List[str]] = None,
+        notes: Optional[str] = None,
+        source: str = "manual",
+    ) -> Dict[str, Any]:
+        """Create or update one watchlist item by symbol."""
+        normalized_symbol = normalize_watchlist_symbol(symbol)
+        if not normalized_symbol:
+            raise ValueError("symbol is required")
+
+        inferred_market, inferred_type = infer_watchlist_identity(normalized_symbol, name=name)
+        final_market = (market or inferred_market or None)
+        final_type = (security_type or inferred_type or "other").lower()
+        if final_type not in {"stock", "etf", "option", "index", "fund", "other"}:
+            raise ValueError(f"unsupported security_type: {final_type}")
+
+        with self.session_scope() as session:
+            item = session.execute(
+                select(WatchlistItem).where(WatchlistItem.symbol == normalized_symbol)
+            ).scalar_one_or_none()
+            if item is None:
+                item = WatchlistItem(symbol=normalized_symbol)
+                session.add(item)
+
+            item.name = (name or "").strip() or item.name
+            item.market = final_market
+            item.security_type = final_type
+            item.active = bool(active)
+            if sector_tags is not None:
+                item.sector_tags = self._safe_json_dumps(normalize_tags(sector_tags))
+            if concept_tags is not None:
+                item.concept_tags = self._safe_json_dumps(normalize_tags(concept_tags))
+            if custom_tags is not None:
+                item.custom_tags = self._safe_json_dumps(normalize_tags(custom_tags))
+            if notes is not None:
+                item.notes = (notes or "").strip() or None
+            item.source = (source or item.source or "manual").strip() or "manual"
+            item.updated_at = datetime.now()
+            session.flush()
+
+            row = self._watchlist_item_to_dict(item)
+            row["relations"] = self._get_watchlist_relations_by_source(session, [item.id]).get(item.id, [])
+            return row
+
+    def update_watchlist_item(self, item_id: int, **updates: Any) -> Dict[str, Any]:
+        """Update one existing watchlist item by id."""
+        with self.session_scope() as session:
+            item = session.execute(
+                select(WatchlistItem).where(WatchlistItem.id == item_id)
+            ).scalar_one_or_none()
+            if item is None:
+                raise ValueError("watchlist item not found")
+
+            symbol = updates.get("symbol")
+            if symbol is not None:
+                normalized_symbol = normalize_watchlist_symbol(str(symbol))
+                if not normalized_symbol:
+                    raise ValueError("symbol is required")
+                item.symbol = normalized_symbol
+
+            target_name = updates.get("name", item.name)
+            inferred_market, inferred_type = infer_watchlist_identity(item.symbol, name=target_name)
+            item.name = (str(target_name).strip() if target_name is not None else item.name) or None
+            if "market" in updates:
+                item.market = updates.get("market") or None
+            elif not item.market:
+                item.market = inferred_market
+
+            raw_security_type = updates.get("security_type") if "security_type" in updates else (item.security_type or inferred_type or "other")
+            security_type = str(raw_security_type or "other").lower()
+            if security_type not in {"stock", "etf", "option", "index", "fund", "other"}:
+                raise ValueError(f"unsupported security_type: {security_type}")
+            item.security_type = security_type
+
+            if "active" in updates:
+                item.active = bool(updates["active"])
+            if "sector_tags" in updates:
+                item.sector_tags = self._safe_json_dumps(normalize_tags(updates.get("sector_tags")))
+            if "concept_tags" in updates:
+                item.concept_tags = self._safe_json_dumps(normalize_tags(updates.get("concept_tags")))
+            if "custom_tags" in updates:
+                item.custom_tags = self._safe_json_dumps(normalize_tags(updates.get("custom_tags")))
+            if "notes" in updates:
+                item.notes = (str(updates.get("notes") or "").strip() or None)
+            if "source" in updates and updates.get("source") is not None:
+                item.source = str(updates["source"]).strip() or item.source
+
+            item.updated_at = datetime.now()
+            session.flush()
+
+            row = self._watchlist_item_to_dict(item)
+            row["relations"] = self._get_watchlist_relations_by_source(session, [item.id]).get(item.id, [])
+            return row
+
+    def delete_watchlist_item(self, item_id: int) -> int:
+        """Delete one watchlist item and its relations."""
+        with self.session_scope() as session:
+            session.execute(
+                delete(WatchlistRelation).where(
+                    or_(
+                        WatchlistRelation.source_item_id == item_id,
+                        WatchlistRelation.target_item_id == item_id,
+                    )
+                )
+            )
+            result = session.execute(delete(WatchlistItem).where(WatchlistItem.id == item_id))
+            return result.rowcount or 0
+
+    def create_watchlist_relation(
+        self,
+        *,
+        source_item_id: int,
+        target_item_id: int,
+        relation_type: str,
+    ) -> Dict[str, Any]:
+        """Create one relation between two watchlist items."""
+        normalized_type = (relation_type or "").strip().lower()
+        if normalized_type not in SUPPORTED_RELATION_TYPES:
+            raise ValueError(f"unsupported relation_type: {relation_type}")
+        if source_item_id == target_item_id:
+            raise ValueError("source and target must be different")
+
+        with self.session_scope() as session:
+            source = session.execute(select(WatchlistItem).where(WatchlistItem.id == source_item_id)).scalar_one_or_none()
+            target = session.execute(select(WatchlistItem).where(WatchlistItem.id == target_item_id)).scalar_one_or_none()
+            if source is None or target is None:
+                raise ValueError("watchlist item not found")
+
+            existing = session.execute(
+                select(WatchlistRelation).where(
+                    and_(
+                        WatchlistRelation.source_item_id == source_item_id,
+                        WatchlistRelation.target_item_id == target_item_id,
+                        WatchlistRelation.relation_type == normalized_type,
+                    )
+                )
+            ).scalar_one_or_none()
+            if existing is None:
+                existing = WatchlistRelation(
+                    source_item_id=source_item_id,
+                    target_item_id=target_item_id,
+                    relation_type=normalized_type,
+                )
+                session.add(existing)
+                session.flush()
+
+            return self._watchlist_relation_to_dict(existing, target)
+
+    def delete_watchlist_relation(self, relation_id: int) -> int:
+        """Delete one relation by id."""
+        with self.session_scope() as session:
+            result = session.execute(
+                delete(WatchlistRelation).where(WatchlistRelation.id == relation_id)
+            )
+            return result.rowcount or 0
+
+    def _watchlist_item_to_dict(self, item: WatchlistItem) -> Dict[str, Any]:
+        return {
+            "id": item.id,
+            "symbol": item.symbol,
+            "name": item.name,
+            "market": item.market,
+            "security_type": item.security_type,
+            "active": bool(item.active),
+            "sector_tags": self._parse_json_list(item.sector_tags),
+            "concept_tags": self._parse_json_list(item.concept_tags),
+            "custom_tags": self._parse_json_list(item.custom_tags),
+            "notes": item.notes,
+            "source": item.source,
+            "created_at": item.created_at.isoformat() if item.created_at else None,
+            "updated_at": item.updated_at.isoformat() if item.updated_at else None,
+        }
+
+    def _watchlist_relation_to_dict(
+        self,
+        relation: WatchlistRelation,
+        target_item: Optional[WatchlistItem],
+    ) -> Dict[str, Any]:
+        return {
+            "id": relation.id,
+            "source_item_id": relation.source_item_id,
+            "target_item_id": relation.target_item_id,
+            "relation_type": relation.relation_type,
+            "target_symbol": target_item.symbol if target_item else None,
+            "target_name": target_item.name if target_item else None,
+            "target_market": target_item.market if target_item else None,
+            "target_security_type": target_item.security_type if target_item else None,
+        }
+
+    def _get_watchlist_relations_by_source(
+        self,
+        session: Session,
+        source_item_ids: List[int],
+    ) -> Dict[int, List[Dict[str, Any]]]:
+        if not source_item_ids:
+            return {}
+        target_alias = aliased(WatchlistItem)
+        rows = session.execute(
+            select(WatchlistRelation, target_alias)
+            .join(target_alias, target_alias.id == WatchlistRelation.target_item_id)
+            .where(WatchlistRelation.source_item_id.in_(source_item_ids))
+            .order_by(WatchlistRelation.relation_type.asc(), target_alias.symbol.asc())
+        ).all()
+
+        result: Dict[int, List[Dict[str, Any]]] = {}
+        for relation, target in rows:
+            result.setdefault(relation.source_item_id, []).append(
+                self._watchlist_relation_to_dict(relation, target)
+            )
+        return result
+
+    @staticmethod
+    def _parse_json_list(value: Optional[str]) -> List[str]:
+        if not value:
+            return []
+        try:
+            parsed = json.loads(value)
+        except Exception:
+            return []
+        if not isinstance(parsed, list):
+            return []
+        return normalize_tags([str(item) for item in parsed])
 
     def save_conversation_message(self, session_id: str, role: str, content: str) -> None:
         """

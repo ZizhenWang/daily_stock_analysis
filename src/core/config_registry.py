@@ -66,7 +66,7 @@ _CATEGORY_DEFINITIONS: List[Dict[str, Any]] = [
 _FIELD_DEFINITIONS: Dict[str, Dict[str, Any]] = {
     "STOCK_LIST": {
         "title": "Stock List",
-        "description": "Comma-separated watchlist stock codes.",
+        "description": "Legacy comma-separated stock list used only for first-run watchlist bootstrap and compatibility fallback.",
         "category": "base",
         "data_type": "array",
         "ui_control": "textarea",

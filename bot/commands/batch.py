@@ -61,7 +61,7 @@ class BatchCommand(BotCommand):
         
         if not stock_list:
             return BotResponse.error_response(
-                "自选股列表为空，请先配置 STOCK_LIST"
+                "默认分析列表为空，请先配置 watchlist 或兼容模式下的 STOCK_LIST"
             )
         
         # 解析数量参数

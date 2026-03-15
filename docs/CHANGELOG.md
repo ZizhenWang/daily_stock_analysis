@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- 🗂️ **Structured watchlist** — added DB-backed `watchlist_items` / `watchlist_relations`, structured tags (`sector_tags / concept_tags / custom_tags`), and relation types (`underlying / tracks / related_to`) for stock / ETF / option / index management
+- 🌐 **Watchlist management API + Web UI** — added watchlist CRUD / relation APIs under `/api/v1/stocks/watchlist*`, upgraded the Settings page from plain `STOCK_LIST` editing to a table-based watchlist manager, and made intelligent import write into the watchlist instead of editing `.env`
 - 🤖 **Codex backend smoke test** — added `LLM_BACKEND=codex|native` runtime switch, `CODEX_MODEL` / `CODEX_TIMEOUT_SECONDS` config, and `python main.py --llm-smoke-test` to verify Codex CLI integration without repo-managed LLM API keys
 - 🤖 **Codex runtime expansion** — analyzer main path, Agent `/ask`/`/chat` direct-answer mode, image stock extraction, and Agent model discovery now support `LLM_BACKEND=codex` without requiring repo-managed LLM API keys
 - 🖥️ **Ubuntu server startup script** — added `scripts/start-server-ubuntu.sh` to bootstrap an isolated `.server-venv` and start `--serve-only` on Ubuntu without polluting the system Python environment
@@ -38,6 +40,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - ⚙️ **New config entries** — `AGENT_ORCHESTRATOR_MODE`, `AGENT_RISK_OVERRIDE`, `AGENT_DEEP_RESEARCH_BUDGET`, `AGENT_MEMORY_ENABLED`, `AGENT_STRATEGY_AUTOWEIGHT`, `AGENT_STRATEGY_ROUTING` — all registered in `config.py` + `config_registry.py` (WebUI-configurable)
 
 ### Changed
+- 🔄 **Default analysis source switched to watchlist** — scheduled runs, WebUI defaults, and Bot batch analysis now read active analyzable assets (`stock` / `etf`) from the DB-backed watchlist; legacy `STOCK_LIST` is retained only for first-run bootstrap and compatibility fallback
 - 🔄 **Tushare fallback priority** — `TushareFetcher` no longer auto-promotes to highest priority when a token is present; it now defaults to fallback priority so broader-coverage free sources are preferred first
 - 🔐 **Auth password state semantics** — stored password existence is now tracked independently from auth enablement; when auth is disabled, `/api/v1/auth/status` returns `passwordSet=false` while preserving the saved password for future re-enable
 - 🔐 **Auth settings re-enable hardening** — re-enabling auth with a stored password now requires `currentPassword`, and failed session creation rolls back the auth toggle to avoid lockout

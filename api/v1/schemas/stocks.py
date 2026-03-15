@@ -9,7 +9,7 @@
 2. 定义历史 K 线数据模型
 """
 
-from typing import Optional, List
+from typing import Optional, List, Literal
 
 from pydantic import BaseModel, Field
 
@@ -109,3 +109,71 @@ class StockHistoryResponse(BaseModel):
                 "data": []
             }
         }
+
+
+class WatchlistRelation(BaseModel):
+    """Watchlist relation item."""
+
+    id: int
+    source_item_id: int
+    target_item_id: int
+    relation_type: Literal['underlying', 'tracks', 'related_to']
+    target_symbol: Optional[str] = None
+    target_name: Optional[str] = None
+    target_market: Optional[str] = None
+    target_security_type: Optional[str] = None
+
+
+class WatchlistItem(BaseModel):
+    """Structured watchlist item."""
+
+    id: int
+    symbol: str
+    name: Optional[str] = None
+    market: Optional[Literal['cn', 'hk', 'us']] = None
+    security_type: Literal['stock', 'etf', 'option', 'index', 'fund', 'other']
+    active: bool = True
+    sector_tags: List[str] = Field(default_factory=list)
+    concept_tags: List[str] = Field(default_factory=list)
+    custom_tags: List[str] = Field(default_factory=list)
+    notes: Optional[str] = None
+    source: Optional[str] = None
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+    relations: List[WatchlistRelation] = Field(default_factory=list)
+
+
+class WatchlistItemInput(BaseModel):
+    """Create/update payload for one watchlist item."""
+
+    symbol: str
+    name: Optional[str] = None
+    market: Optional[Literal['cn', 'hk', 'us']] = None
+    security_type: Optional[Literal['stock', 'etf', 'option', 'index', 'fund', 'other']] = None
+    active: bool = True
+    sector_tags: Optional[List[str]] = None
+    concept_tags: Optional[List[str]] = None
+    custom_tags: Optional[List[str]] = None
+    notes: Optional[str] = None
+
+
+class WatchlistRelationInput(BaseModel):
+    """Create relation payload."""
+
+    source_item_id: int
+    target_item_id: int
+    relation_type: Literal['underlying', 'tracks', 'related_to']
+
+
+class WatchlistListResponse(BaseModel):
+    """Watchlist list response."""
+
+    total: int
+    items: List[WatchlistItem] = Field(default_factory=list)
+
+
+class WatchlistImportResponse(BaseModel):
+    """Legacy STOCK_LIST import response."""
+
+    imported_count: int
+    items: List[WatchlistItem] = Field(default_factory=list)

@@ -1058,7 +1058,7 @@ class StockAnalysisPipeline:
             stock_codes = self.config.stock_list
         
         if not stock_codes:
-            logger.error("未配置自选股列表，请在 .env 文件中设置 STOCK_LIST")
+            logger.error("未配置默认分析标的，请先配置 watchlist 或兼容模式下的 STOCK_LIST")
             return []
         
         logger.info(f"===== 开始分析 {len(stock_codes)} 只股票 =====")
