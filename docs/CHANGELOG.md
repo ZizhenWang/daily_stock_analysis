@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - 🌐 **Watchlist management API + Web UI** — added watchlist CRUD / relation APIs under `/api/v1/stocks/watchlist*`, upgraded the Settings page from plain `STOCK_LIST` editing to a table-based watchlist manager, and made intelligent import write into the watchlist instead of editing `.env`
 - 🏷️ **Multi-tag watchlist filtering** — watchlist tags now explicitly support multiple values per category (`sector/concept/custom`), and the Web/API filtering experience now supports keyword, status, market/type, and category-specific tag filters
 - 🤖 **Bot watchlist management** — added `/watchlist add ...` and `/watchlist list ...` commands so Feishu / DingTalk users can add symbols into the structured watchlist without opening the Web UI
+- ⏰ **Multi-job scheduler** — added `SCHEDULE_JOBS_JSON` so the dedicated schedule service can run multiple daily jobs (for example US market review in the morning and CN market review in the evening) while keeping Web/API/Bot in a separate long-running service
+- 🎯 **Bot `/market` region override** — `/market` now accepts `cn / us / both` as an optional argument; when omitted it still uses `.env` `MARKET_REVIEW_REGION`
 - 🤖 **Codex backend smoke test** — added `LLM_BACKEND=codex|native` runtime switch, `CODEX_MODEL` / `CODEX_TIMEOUT_SECONDS` config, and `python main.py --llm-smoke-test` to verify Codex CLI integration without repo-managed LLM API keys
 - 🤖 **Codex runtime expansion** — analyzer main path, Agent `/ask`/`/chat` direct-answer mode, image stock extraction, and Agent model discovery now support `LLM_BACKEND=codex` without requiring repo-managed LLM API keys
 - 🖥️ **Ubuntu server startup script** — added `scripts/start-server-ubuntu.sh` to bootstrap an isolated `.server-venv` and start `--serve-only` on Ubuntu without polluting the system Python environment
@@ -43,6 +45,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 - 🔄 **Default analysis source switched to watchlist** — scheduled runs, WebUI defaults, and Bot batch analysis now read active analyzable assets (`stock` / `etf`) from the DB-backed watchlist; legacy `STOCK_LIST` is retained only for first-run bootstrap and compatibility fallback
+- 🔄 **Bot `/market` now respects `MARKET_REVIEW_REGION=both`** — the command now routes through the shared market review path instead of forcing `both` back to `cn`
 - 🔄 **Tushare fallback priority** — `TushareFetcher` no longer auto-promotes to highest priority when a token is present; it now defaults to fallback priority so broader-coverage free sources are preferred first
 - 🔐 **Auth password state semantics** — stored password existence is now tracked independently from auth enablement; when auth is disabled, `/api/v1/auth/status` returns `passwordSet=false` while preserving the saved password for future re-enable
 - 🔐 **Auth settings re-enable hardening** — re-enabling auth with a stored password now requires `currentPassword`, and failed session creation rolls back the auth toggle to avoid lockout

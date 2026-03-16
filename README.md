@@ -203,6 +203,28 @@
 - 首次启动且数据库 watchlist 为空时，会自动从 `.env` 的 `STOCK_LIST` 导入
 - 导入后，定时任务、WebUI、Bot 默认都读取数据库中 `active=true` 且可分析的 `stock/etf`
 - CLI 显式传入 `--stocks` 时，仍按命令行参数优先执行
+
+### 多任务定时调度
+
+如果你采用“两个服务”部署模式：
+- `stock-analyzer.service`：常驻 Web/API/Bot 服务
+- `stock-analyzer-schedule.service`：常驻定时调度器
+
+推荐通过单个配置项 `SCHEDULE_JOBS_JSON` 在调度器内部注册多个计划任务。例如：
+
+```env
+SCHEDULE_ENABLED=true
+SCHEDULE_RUN_IMMEDIATELY=false
+SCHEDULE_JOBS_JSON=[{"name":"us_market_review","time":"08:00","job_type":"market_review","market_review_region":"us","force_run":true},{"name":"cn_market_review","time":"18:00","job_type":"market_review","market_review_region":"cn"},{"name":"default_batch","time":"18:10","job_type":"full_analysis"}]
+```
+
+当前支持的 `job_type`：
+- `market_review`：仅执行大盘复盘，可配 `market_review_region=cn|us|both`
+- `full_analysis`：执行默认分析主流程，可继续带大盘复盘
+
+说明：
+- 未配置 `SCHEDULE_JOBS_JSON` 时，系统仍按旧版 `SCHEDULE_TIME` 单任务模式运行
+- 飞书 Bot 对话与 WebUI 仍然放在常驻 Web 服务里，不在定时服务中处理
 >   - `get_stock_info.sector_rankings` 与 `fundamental_context.boards.data` 保持一致。
 > - 板块涨跌榜采用固定回退顺序：`AkShare(EM->Sina) -> Tushare -> efinance`。
 
@@ -355,6 +377,7 @@ LITELLM_MODEL=openai/deepseek-chat
 - **导出与发送**：可将会话导出为 .md 文件，或发送到已配置的通知渠道
 - **后台执行**：切换页面不中断分析，完成时 Dock 问股图标显示角标
 - **Bot 命令**：`/ask` 策略分析（支持多股对比）、`/chat` 自由对话
+- **Bot 大盘复盘**：`/market` 默认按 `.env` 中的 `MARKET_REVIEW_REGION` 执行，也支持 `/market cn`、`/market us`、`/market both` 临时覆盖
 - **Watchlist Bot 命令**：`/watchlist add AAPL sector=AI,消费电子 tag=观察` 可直接将标的加入结构化 watchlist；`/watchlist list market=cn active=true` 可快速查看当前标的池
 - **自定义策略**：在 `strategies/` 目录下新建 YAML 文件即可添加策略，无需写代码
 - **多 Agent 架构**（实验性）：设置 `AGENT_ARCH=multi` 启用 Technical → Intel → Risk → Strategy → Decision 多 Agent 级联编排，通过 `AGENT_ORCHESTRATOR_MODE` 控制深度（quick/standard/full/strategy）。超时或中间阶段 JSON 解析失败时，系统会优先保留已完成阶段结果并降级生成最小可用仪表盘，避免整份报告直接退回默认占位。详见 [完整配置指南](docs/full-guide.md)

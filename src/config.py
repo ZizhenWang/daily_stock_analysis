@@ -40,6 +40,22 @@ class ConfigIssue:
         return self.message
 
 
+@dataclass
+class ScheduleJobConfig:
+    """One scheduled job definition for multi-job schedule mode."""
+
+    name: str
+    time: str
+    job_type: str = "full_analysis"
+    enabled: bool = True
+    run_immediately: bool = False
+    market_review_region: Optional[str] = None
+    force_run: bool = False
+    no_notify: bool = False
+    no_market_review: Optional[bool] = None
+    stock_codes: List[str] = field(default_factory=list)
+
+
 _MANAGED_LITELLM_KEY_PROVIDERS = {"gemini", "vertex_ai", "anthropic", "openai", "deepseek"}
 SUPPORTED_LLM_CHANNEL_PROTOCOLS = ("openai", "anthropic", "gemini", "vertex_ai", "deepseek", "ollama")
 _FALSEY_ENV_VALUES = {"0", "false", "no", "off"}
@@ -477,6 +493,7 @@ class Config:
     schedule_enabled: bool = False            # 是否启用定时任务
     schedule_time: str = "18:00"              # 每日推送时间（HH:MM 格式）
     schedule_run_immediately: bool = True     # 启动时是否立即执行一次
+    schedule_jobs: List[ScheduleJobConfig] = field(default_factory=list)  # 多任务调度配置
     run_immediately: bool = True              # 启动时是否立即执行一次（非定时模式）
     market_review_enabled: bool = True        # 是否启用大盘复盘
     # 大盘复盘市场区域：cn(A股)、us(美股)、both(两者)，us 适合仅关注美股的用户
@@ -971,6 +988,7 @@ class Config:
             schedule_enabled=os.getenv('SCHEDULE_ENABLED', 'false').lower() == 'true',
             schedule_time=os.getenv('SCHEDULE_TIME', '18:00'),
             schedule_run_immediately=os.getenv('SCHEDULE_RUN_IMMEDIATELY', 'true').lower() == 'true',
+            schedule_jobs=cls._parse_schedule_jobs(os.getenv('SCHEDULE_JOBS_JSON', '')),
             run_immediately=os.getenv('RUN_IMMEDIATELY', 'true').lower() == 'true',
             market_review_enabled=os.getenv('MARKET_REVIEW_ENABLED', 'true').lower() == 'true',
             market_review_region=cls._parse_market_review_region(
@@ -1298,6 +1316,77 @@ class Config:
             f"MARKET_REVIEW_REGION 配置值 '{value}' 无效，已回退为默认值 'cn'（合法值：cn / us / both）"
         )
         return 'cn'
+
+    @classmethod
+    def _parse_schedule_jobs(cls, raw_value: str) -> List[ScheduleJobConfig]:
+        """Parse SCHEDULE_JOBS_JSON into validated multi-job schedule configs."""
+        if not (raw_value or "").strip():
+            return []
+
+        logger = logging.getLogger(__name__)
+        try:
+            parsed = json.loads(raw_value)
+        except Exception as exc:
+            logger.warning("SCHEDULE_JOBS_JSON 解析失败，已忽略并回退单任务模式: %s", exc)
+            return []
+
+        if not isinstance(parsed, list):
+            logger.warning("SCHEDULE_JOBS_JSON 必须是 JSON 数组，已忽略并回退单任务模式")
+            return []
+
+        jobs: List[ScheduleJobConfig] = []
+        valid_job_types = {"full_analysis", "market_review"}
+        for index, item in enumerate(parsed):
+            if not isinstance(item, dict):
+                logger.warning("SCHEDULE_JOBS_JSON 第 %d 项不是对象，已跳过", index)
+                continue
+
+            name = str(item.get("name") or f"job_{index + 1}").strip()
+            schedule_time = str(item.get("time") or "").strip()
+            job_type = str(item.get("job_type") or "full_analysis").strip().lower()
+            if not re.match(r"^\d{2}:\d{2}$", schedule_time):
+                logger.warning("SCHEDULE_JOBS_JSON 第 %d 项 time=%r 非法，已跳过", index, schedule_time)
+                continue
+            if job_type not in valid_job_types:
+                logger.warning("SCHEDULE_JOBS_JSON 第 %d 项 job_type=%r 非法，已跳过", index, job_type)
+                continue
+
+            market_review_region = item.get("market_review_region")
+            if market_review_region is not None:
+                market_review_region = cls._parse_market_review_region(str(market_review_region))
+
+            no_market_review = item.get("no_market_review")
+            if no_market_review is not None:
+                no_market_review = bool(no_market_review)
+
+            stock_codes = item.get("stock_codes") or []
+            if isinstance(stock_codes, str):
+                stock_codes = _parse_stock_list_text(stock_codes)
+            elif isinstance(stock_codes, list):
+                stock_codes = [
+                    str(code).strip().upper()
+                    for code in stock_codes
+                    if str(code).strip()
+                ]
+            else:
+                stock_codes = []
+
+            jobs.append(
+                ScheduleJobConfig(
+                    name=name or f"job_{index + 1}",
+                    time=schedule_time,
+                    job_type=job_type,
+                    enabled=bool(item.get("enabled", True)),
+                    run_immediately=bool(item.get("run_immediately", False)),
+                    market_review_region=market_review_region,
+                    force_run=bool(item.get("force_run", False)),
+                    no_notify=bool(item.get("no_notify", False)),
+                    no_market_review=no_market_review,
+                    stock_codes=stock_codes,
+                )
+            )
+
+        return jobs
 
     @classmethod
     def _parse_md2img_engine(cls, value: str) -> str:

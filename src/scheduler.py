@@ -18,10 +18,21 @@ import signal
 import sys
 import time
 import threading
+from dataclasses import dataclass
 from datetime import datetime
-from typing import Callable, Optional
+from typing import Callable, List, Optional
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class ScheduledJob:
+    """One registered schedule job."""
+
+    name: str
+    schedule_time: str
+    task: Callable
+    run_immediately: bool = False
 
 
 class GracefulShutdown:
@@ -80,6 +91,7 @@ class Scheduler:
         self.schedule_time = schedule_time
         self.shutdown_handler = GracefulShutdown()
         self._task_callback: Optional[Callable] = None
+        self._jobs: List[ScheduledJob] = []
         self._running = False
         
     def set_daily_task(self, task: Callable, run_immediately: bool = True):
@@ -99,7 +111,25 @@ class Scheduler:
         if run_immediately:
             logger.info("立即执行一次任务...")
             self._safe_run_task()
-    
+
+    def add_daily_job(self, job: ScheduledJob):
+        """Register one named daily job."""
+        self._jobs.append(job)
+        self.schedule.every().day.at(job.schedule_time).do(
+            self._safe_run_named_task,
+            job.name,
+            job.task,
+        )
+        logger.info("已设置定时任务 [%s]，执行时间: %s", job.name, job.schedule_time)
+        if job.run_immediately:
+            logger.info("定时任务 [%s] 启动时立即执行一次...", job.name)
+            self._safe_run_named_task(job.name, job.task)
+
+    def set_daily_jobs(self, jobs: List[ScheduledJob]):
+        """Register multiple named daily jobs."""
+        for job in jobs:
+            self.add_daily_job(job)
+
     def _safe_run_task(self):
         """安全执行任务（带异常捕获）"""
         if self._task_callback is None:
@@ -116,6 +146,17 @@ class Scheduler:
             
         except Exception as e:
             logger.exception(f"定时任务执行失败: {e}")
+
+    def _safe_run_named_task(self, job_name: str, task: Callable):
+        """Safely execute one named task."""
+        try:
+            logger.info("=" * 50)
+            logger.info("定时任务开始执行 [%s] - %s", job_name, datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+            logger.info("=" * 50)
+            task()
+            logger.info("定时任务执行完成 [%s] - %s", job_name, datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+        except Exception as e:
+            logger.exception("定时任务执行失败 [%s]: %s", job_name, e)
     
     def run(self):
         """
@@ -125,6 +166,9 @@ class Scheduler:
         """
         self._running = True
         logger.info("调度器开始运行...")
+        if self._jobs:
+            for job in self._jobs:
+                logger.info("已注册任务: [%s] @ %s", job.name, job.schedule_time)
         logger.info(f"下次执行时间: {self._get_next_run_time()}")
         
         while self._running and not self.shutdown_handler.should_shutdown:
@@ -165,6 +209,13 @@ def run_with_schedule(
     """
     scheduler = Scheduler(schedule_time=schedule_time)
     scheduler.set_daily_task(task, run_immediately=run_immediately)
+    scheduler.run()
+
+
+def run_with_schedule_jobs(jobs: List[ScheduledJob]):
+    """Convenience entrypoint for multi-job schedule mode."""
+    scheduler = Scheduler()
+    scheduler.set_daily_jobs(jobs)
     scheduler.run()
 
 

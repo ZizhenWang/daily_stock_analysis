@@ -25,7 +25,7 @@
 
 支持的命令：
 - /analyze <股票代码>  - 分析指定股票
-- /market             - 大盘复盘
+- /market [cn|us|both] - 大盘复盘（可临时覆盖市场区域）
 - /batch              - 批量分析自选股
 - /help               - 显示帮助
 - /status             - 系统状态

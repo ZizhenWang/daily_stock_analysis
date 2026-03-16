@@ -304,7 +304,7 @@ journalctl -u stock-analyzer-schedule -f
 Environment=PORT=18000
 ```
 
-如果你希望每天早上 08:00 运行，修改 `.env`：
+如果你希望单任务模式每天早上 08:00 运行，修改 `.env`：
 
 ```env
 SCHEDULE_TIME=08:00
@@ -313,6 +313,18 @@ SCHEDULE_TIME=08:00
 注意：
 - `stock-analyzer-schedule.service` 使用 `--no-run-immediately`，所以服务启动时不会先跑一轮
 - 它只会等到 `.env` 中的 `SCHEDULE_TIME` 到点再执行
+
+如果你希望同一个定时服务内部支持多个计划任务，例如“08:00 美股复盘、18:00 A股复盘、18:10 默认日报”，推荐直接在 `.env` 中设置：
+
+```env
+SCHEDULE_ENABLED=true
+SCHEDULE_RUN_IMMEDIATELY=false
+SCHEDULE_JOBS_JSON=[{"name":"us_market_review","time":"08:00","job_type":"market_review","market_review_region":"us","force_run":true},{"name":"cn_market_review","time":"18:00","job_type":"market_review","market_review_region":"cn"},{"name":"default_batch","time":"18:10","job_type":"full_analysis"}]
+```
+
+说明：
+- 配置 `SCHEDULE_JOBS_JSON` 后，调度服务将优先使用多任务模式，不再只看 `SCHEDULE_TIME`
+- Web / API / 飞书 Bot 仍由 `stock-analyzer.service` 承担，不在定时服务内处理
 
 ---
 
@@ -364,7 +376,8 @@ cd /opt/stock-analyzer
 | 配置项 | 默认值 | 说明 |
 |--------|--------|------|
 | `SCHEDULE_ENABLED` | `false` | 是否启用定时任务 |
-| `SCHEDULE_TIME` | `18:00` | 每日执行时间 |
+| `SCHEDULE_TIME` | `18:00` | 单任务模式下的每日执行时间 |
+| `SCHEDULE_JOBS_JSON` | - | 多任务调度 JSON 数组，支持不同时间跑不同任务 |
 | `MARKET_REVIEW_ENABLED` | `true` | 是否启用大盘复盘 |
 | `TAVILY_API_KEYS` | - | 新闻搜索（可选） |
 | `MINIMAX_API_KEYS` | - | MiniMax 搜索（可选） |

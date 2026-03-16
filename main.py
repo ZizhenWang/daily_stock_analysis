@@ -47,7 +47,7 @@ from data_provider.base import canonical_stock_code
 from src.core.pipeline import StockAnalysisPipeline
 from src.core.market_review import run_market_review
 from src.webui_frontend import prepare_webui_frontend_assets
-from src.config import get_config, Config
+from src.config import get_config, Config, ScheduleJobConfig
 from src.codex_backend import CodexBackend, CodexBackendError, build_smoke_test_prompt, build_smoke_test_schema
 from src.logging_config import setup_logging
 
@@ -260,6 +260,146 @@ def _compute_trading_day_filter(
 
     should_skip_all = (not filtered_codes) and (effective_region or '') == ''
     return (filtered_codes, effective_region, should_skip_all)
+
+
+def _clone_args_with_overrides(args: argparse.Namespace, **overrides) -> argparse.Namespace:
+    """Clone argparse namespace for scheduled sub-jobs."""
+    cloned = argparse.Namespace(**vars(args))
+    for key, value in overrides.items():
+        setattr(cloned, key, value)
+    return cloned
+
+
+def _run_market_review_only(
+    config: Config,
+    args: argparse.Namespace,
+    *,
+    region_override: Optional[str] = None,
+) -> int:
+    """Run market review using the same behavior as CLI-only market review mode."""
+    from src.analyzer import GeminiAnalyzer
+    from src.notification import NotificationService
+    from src.search_service import SearchService
+
+    effective_region = region_override
+    if not getattr(args, 'force_run', False) and getattr(config, 'trading_day_check_enabled', True):
+        from src.core.trading_calendar import get_open_markets_today, compute_effective_region as _compute_region
+        open_markets = get_open_markets_today()
+        effective_region = _compute_region(
+            region_override or getattr(config, 'market_review_region', 'cn') or 'cn',
+            open_markets,
+        )
+        if effective_region == '':
+            logger.info("今日大盘复盘相关市场均为非交易日，跳过执行。可使用 --force-run 强制执行。")
+            return 0
+
+    logger.info("模式: 仅大盘复盘")
+    notifier = NotificationService()
+
+    search_service = None
+    analyzer = None
+
+    if config.bocha_api_keys or config.tavily_api_keys or config.brave_api_keys or config.serpapi_keys or config.minimax_api_keys or config.searxng_base_urls:
+        search_service = SearchService(
+            bocha_keys=config.bocha_api_keys,
+            tavily_keys=config.tavily_api_keys,
+            brave_keys=config.brave_api_keys,
+            serpapi_keys=config.serpapi_keys,
+            minimax_keys=config.minimax_api_keys,
+            searxng_base_urls=config.searxng_base_urls,
+            news_max_age_days=config.news_max_age_days,
+        )
+
+    analyzer = GeminiAnalyzer(api_key=config.gemini_api_key)
+    if not analyzer.is_available():
+        if config.llm_backend == "codex":
+            logger.warning("Codex 后端不可用，将仅使用模板生成报告")
+        else:
+            logger.warning("AI 分析器初始化后不可用，请检查 API Key 配置")
+        analyzer = None
+
+    run_market_review(
+        notifier=notifier,
+        analyzer=analyzer,
+        search_service=search_service,
+        send_notification=not args.no_notify,
+        override_region=effective_region,
+    )
+    return 0
+
+
+def _run_scheduled_job(
+    config: Config,
+    args: argparse.Namespace,
+    job: ScheduleJobConfig,
+    stock_codes: Optional[List[str]],
+) -> None:
+    """Execute one scheduled job with per-job overrides."""
+    logger.info(
+        "准备执行定时任务 [%s]: type=%s, time=%s, region=%s",
+        job.name,
+        job.job_type,
+        job.time,
+        job.market_review_region or getattr(config, "market_review_region", "cn"),
+    )
+    job_args = _clone_args_with_overrides(
+        args,
+        force_run=job.force_run,
+        no_notify=job.no_notify,
+        no_market_review=(job.no_market_review if job.no_market_review is not None else getattr(args, "no_market_review", False)),
+    )
+    original_region = config.market_review_region
+    try:
+        if job.market_review_region:
+            config.market_review_region = job.market_review_region
+        if job.job_type == "market_review":
+            _run_market_review_only(
+                config,
+                job_args,
+                region_override=job.market_review_region or original_region,
+            )
+            return
+
+        selected_codes = job.stock_codes or stock_codes
+        run_full_analysis(config, job_args, selected_codes)
+    finally:
+        config.market_review_region = original_region
+
+
+def _build_schedule_jobs(
+    config: Config,
+    args: argparse.Namespace,
+    stock_codes: Optional[List[str]],
+):
+    """Build scheduler job objects from config."""
+    from src.scheduler import ScheduledJob
+
+    if config.schedule_jobs:
+        jobs = []
+        for job in config.schedule_jobs:
+            if not job.enabled:
+                continue
+            jobs.append(
+                ScheduledJob(
+                    name=job.name,
+                    schedule_time=job.time,
+                    run_immediately=job.run_immediately,
+                    task=lambda job=job: _run_scheduled_job(config, args, job, stock_codes),
+                )
+            )
+        return jobs
+
+    should_run_immediately = config.schedule_run_immediately
+    if getattr(args, 'no_run_immediately', False):
+        should_run_immediately = False
+    return [
+        ScheduledJob(
+            name="default_daily_analysis",
+            schedule_time=config.schedule_time,
+            run_immediately=should_run_immediately,
+            task=lambda: run_full_analysis(config, args, stock_codes),
+        )
+    ]
 
 
 def run_full_analysis(
@@ -642,85 +782,23 @@ def main() -> int:
 
         # 模式1: 仅大盘复盘
         if args.market_review:
-            from src.analyzer import GeminiAnalyzer
-            from src.core.market_review import run_market_review
-            from src.notification import NotificationService
-            from src.search_service import SearchService
-
-            # Issue #373: Trading day check for market-review-only mode.
-            # Do NOT use _compute_trading_day_filter here: that helper checks
-            # config.market_review_enabled, which would wrongly block an
-            # explicit --market-review invocation when the flag is disabled.
-            effective_region = None
-            if not getattr(args, 'force_run', False) and getattr(config, 'trading_day_check_enabled', True):
-                from src.core.trading_calendar import get_open_markets_today, compute_effective_region as _compute_region
-                open_markets = get_open_markets_today()
-                effective_region = _compute_region(
-                    getattr(config, 'market_review_region', 'cn') or 'cn', open_markets
-                )
-                if effective_region == '':
-                    logger.info("今日大盘复盘相关市场均为非交易日，跳过执行。可使用 --force-run 强制执行。")
-                    return 0
-
-            logger.info("模式: 仅大盘复盘")
-            notifier = NotificationService()
-
-            # 初始化搜索服务和分析器（如果有配置）
-            search_service = None
-            analyzer = None
-
-            if config.bocha_api_keys or config.tavily_api_keys or config.brave_api_keys or config.serpapi_keys or config.minimax_api_keys or config.searxng_base_urls:
-                search_service = SearchService(
-                    bocha_keys=config.bocha_api_keys,
-                    tavily_keys=config.tavily_api_keys,
-                    brave_keys=config.brave_api_keys,
-                    serpapi_keys=config.serpapi_keys,
-                    minimax_keys=config.minimax_api_keys,
-                    searxng_base_urls=config.searxng_base_urls,
-                    news_max_age_days=config.news_max_age_days,
-                )
-
-            analyzer = GeminiAnalyzer(api_key=config.gemini_api_key)
-            if not analyzer.is_available():
-                if config.llm_backend == "codex":
-                    logger.warning("Codex 后端不可用，将仅使用模板生成报告")
-                else:
-                    logger.warning("AI 分析器初始化后不可用，请检查 API Key 配置")
-                analyzer = None
-
-            run_market_review(
-                notifier=notifier,
-                analyzer=analyzer,
-                search_service=search_service,
-                send_notification=not args.no_notify,
-                override_region=effective_region,
-            )
-            return 0
+            return _run_market_review_only(config, args)
 
         # 模式2: 定时任务模式
         if args.schedule or config.schedule_enabled:
             logger.info("模式: 定时任务")
-            logger.info(f"每日执行时间: {config.schedule_time}")
+            from src.scheduler import run_with_schedule_jobs
 
-            # Determine whether to run immediately:
-            # Command line arg --no-run-immediately overrides config if present.
-            # Otherwise use config (defaults to True).
-            should_run_immediately = config.schedule_run_immediately
-            if getattr(args, 'no_run_immediately', False):
-                should_run_immediately = False
+            jobs = _build_schedule_jobs(config, args, stock_codes)
+            if config.schedule_jobs:
+                logger.info("多任务调度已启用，任务数: %d", len(jobs))
+                for job in jobs:
+                    logger.info("定时任务: [%s] @ %s (启动即执行=%s)", job.name, job.schedule_time, job.run_immediately)
+            else:
+                logger.info(f"每日执行时间: {config.schedule_time}")
+                logger.info(f"启动时立即执行: {jobs[0].run_immediately}")
 
-            logger.info(f"启动时立即执行: {should_run_immediately}")
-
-            from src.scheduler import run_with_schedule
-
-            def scheduled_task():
-                run_full_analysis(config, args, stock_codes)
-
-            run_with_schedule(
-                task=scheduled_task,
-                schedule_time=config.schedule_time,
-                run_immediately=should_run_immediately
-            )
+            run_with_schedule_jobs(jobs)
             return 0
 
         # 模式3: 正常单次运行
