@@ -410,6 +410,12 @@ LITELLM_MODEL=openai/deepseek-chat
 > ```
 > 如需先安装 Ubuntu 24.04 的系统依赖和 `codex` CLI，可先运行 [`scripts/bootstrap-server-ubuntu.sh`](/Users/zizhen/Documents/repos/codex/daily_stock_analysis/scripts/bootstrap-server-ubuntu.sh)；推荐带上 `APP_USER=stock`，顺手修正项目目录属主。
 > 如需开机自启，可参考仓库模板 [`scripts/stock-analyzer.service.example`](/Users/zizhen/Documents/repos/codex/daily_stock_analysis/scripts/stock-analyzer.service.example)（Web/API 常驻）和 [`scripts/stock-analyzer-schedule.service.example`](/Users/zizhen/Documents/repos/codex/daily_stock_analysis/scripts/stock-analyzer-schedule.service.example)（定时调度）。
+>
+> Docker / NAS 部署若使用 `LLM_BACKEND=codex`，仓库内置 Dockerfile 已包含 `codex` CLI，并默认通过 `../codex-home:/codex-home` 挂载持久化登录态目录。首次启动正式服务前，建议先执行：
+> ```bash
+> docker-compose -f ./docker/docker-compose.yml run --rm server codex login --device-auth
+> ```
+> 登录完成后，`server` 与 `analyzer` 容器会共享 `CODEX_HOME=/codex-home` 中的登录态。
 
 ## 🗺️ Roadmap
 

@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - 🎯 **Bot `/market` region override** — `/market` now accepts `cn / us / both` as an optional argument; when omitted it still uses `.env` `MARKET_REVIEW_REGION`
 - 🤖 **Codex backend smoke test** — added `LLM_BACKEND=codex|native` runtime switch, `CODEX_MODEL` / `CODEX_TIMEOUT_SECONDS` config, and `python main.py --llm-smoke-test` to verify Codex CLI integration without repo-managed LLM API keys
 - 🤖 **Codex runtime expansion** — analyzer main path, Agent `/ask`/`/chat` direct-answer mode, image stock extraction, and Agent model discovery now support `LLM_BACKEND=codex` without requiring repo-managed LLM API keys
+- 🐳 **Docker Codex runtime support** — Docker runtime image now installs the `codex` CLI and mounts a shared `codex-home` volume so `docker-compose ... run --rm server codex login --device-auth` can persist login state for both `server` and `analyzer`
 - 🖥️ **Ubuntu server startup script** — added `scripts/start-server-ubuntu.sh` to bootstrap an isolated `.server-venv` and start `--serve-only` on Ubuntu without polluting the system Python environment
 - 🧱 **Ubuntu bootstrap script** — added `scripts/bootstrap-server-ubuntu.sh` to install system packages, Node.js/npm, and the `codex` CLI before the isolated app startup step
 - 🧰 **Systemd service template** — added `scripts/stock-analyzer.service.example` for Ubuntu/server deployments using the isolated startup script

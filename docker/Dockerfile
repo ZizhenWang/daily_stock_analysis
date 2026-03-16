@@ -24,15 +24,21 @@ ENV TZ=Asia/Shanghai
 RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 
 # 安装系统依赖（wkhtmltopdf 含 wkhtmltoimage，用于 Markdown 转图片 Issue #289）
+# 运行阶段额外安装 nodejs/npm，以便容器内可用 Codex CLI。
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     curl \
+    nodejs \
+    npm \
     wkhtmltopdf \
     fontconfig \
     libjpeg62-turbo \
     libxrender1 \
     libxext6 \
     && rm -rf /var/lib/apt/lists/*
+
+# 安装 Codex CLI，供 LLM_BACKEND=codex 的容器部署使用。
+RUN npm install -g @openai/codex
 
 # 复制依赖文件
 COPY requirements.txt .
@@ -57,6 +63,7 @@ RUN mkdir -p /app/data /app/logs /app/reports
 ENV PYTHONUNBUFFERED=1
 ENV LOG_DIR=/app/logs
 ENV DATABASE_PATH=/app/data/stock_analysis.db
+ENV CODEX_HOME=/codex-home
 # Web/API service
 ENV WEBUI_HOST=0.0.0.0
 ENV API_PORT=8000
@@ -64,8 +71,8 @@ ENV API_PORT=8000
 # 暴露 API 端口
 EXPOSE 8000
 
-# 数据卷（持久化数据）
-VOLUME ["/app/data", "/app/logs", "/app/reports"]
+# 数据卷（持久化数据 + Codex 登录态）
+VOLUME ["/app/data", "/app/logs", "/app/reports", "/codex-home"]
 
 # 健康检查（FastAPI 模式）
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \

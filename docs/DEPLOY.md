@@ -363,6 +363,25 @@ cd /opt/stock-analyzer
 
 探活成功后，再启动常驻服务或 systemd。
 
+对于 Docker / NAS 模式，不建议把交互式 `codex login` 放进容器启动流程。仓库内置 Dockerfile 已在运行镜像中安装 `codex` CLI，并在 `docker/docker-compose.yml` 中默认挂载 `../codex-home:/codex-home` 作为持久化登录态目录。推荐先单独执行一次：
+
+```bash
+docker-compose -f ./docker/docker-compose.yml run --rm server codex login --device-auth
+```
+
+然后再启动正式服务：
+
+```bash
+docker-compose -f ./docker/docker-compose.yml up -d server analyzer
+```
+
+如需验证容器内 Codex 是否可用：
+
+```bash
+docker-compose -f ./docker/docker-compose.yml exec server sh -lc 'which codex && codex --version'
+docker-compose -f ./docker/docker-compose.yml exec server python main.py --llm-smoke-test
+```
+
 ### `native` 模式必须配置项
 
 | 配置项 | 说明 | 获取方式 |
