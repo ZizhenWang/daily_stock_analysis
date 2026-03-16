@@ -2,6 +2,8 @@
 
 本文档记录当前服务器部署方式下，日常运维最常用的命令和检查项。
 
+如需查看群晖 NAS / Docker 版本的部署与运维说明，可参考 [部署指南](DEPLOY.md) 中靠前的「群晖 NAS / Container Manager 部署」章节。
+
 当前假设：
 - 运行用户：`stock`
 - 项目目录：`/opt/stock-analyzer/daily_stock_analysis`

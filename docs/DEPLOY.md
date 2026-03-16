@@ -4,6 +4,272 @@
 
 如需部署完成后的日常运维命令速查，可参考 [服务器运维手册](server-ops.md)。
 
+## 快速导航
+
+- [群晖 NAS / Container Manager 部署](#-群晖-nas--container-manager-部署)
+- [阿里云 / Ubuntu：Docker Compose 部署](#-阿里云--ubuntu方案一docker-compose-部署推荐)
+- [阿里云 / Ubuntu：直接部署](#️-阿里云--ubuntu方案二直接部署)
+- [阿里云 / Ubuntu：Systemd 服务](#-阿里云--ubuntu方案三systemd-服务)
+- [配置说明](#️-配置说明)
+- [常见问题](#-常见问题)
+
+---
+
+## 🧰 群晖 NAS / Container Manager 部署
+
+如果你当前的主场景是 **群晖 DS423+ / DSM + Container Manager**，建议优先看这一节。
+
+推荐目录：
+
+```text
+/volume1/docker/stock/daily_stock_analysis
+```
+
+推荐目录结构：
+
+```text
+/volume1/docker/stock/
+  daily_stock_analysis/
+    .env
+    codex-home/
+    data/
+    logs/
+    reports/
+```
+
+说明：
+- `data/`、`logs/`、`reports/` 为运行数据
+- `codex-home/` 用于 Docker 容器持久化 `CODEX_HOME`
+- 群晖环境下相对路径解析可能与标准 Linux 不完全一致，建议把 `codex-home/`、`data/`、`logs/`、`reports/` 都放在仓库目录下并确认挂载生效
+
+### 1. 首次拉取代码
+
+群晖宿主机通常未安装 `git`，推荐使用临时 Git 容器拉代码：
+
+```bash
+sudo docker run --rm -it \
+  -v /volume1/docker/stock:/work \
+  alpine/git \
+  clone -b dev --single-branch https://github.com/ZizhenWang/daily_stock_analysis.git /work/daily_stock_analysis
+```
+
+确认当前分支：
+
+```bash
+sudo docker run --rm -it \
+  -v /volume1/docker/stock/daily_stock_analysis:/repo \
+  -w /repo \
+  alpine/git \
+  branch --show-current
+```
+
+### 2. 初始化 `.env`
+
+```bash
+cp /volume1/docker/stock/daily_stock_analysis/.env.example /volume1/docker/stock/daily_stock_analysis/.env
+vi /volume1/docker/stock/daily_stock_analysis/.env
+```
+
+建议至少确认：
+
+```env
+WEBUI_HOST=0.0.0.0
+WEBUI_PORT=8000
+API_PORT=8000
+WEBUI_AUTO_BUILD=false
+ADMIN_AUTH_ENABLED=true
+
+FEISHU_STREAM_ENABLED=true
+FEISHU_APP_ID=
+FEISHU_APP_SECRET=
+FEISHU_WEBHOOK_URL=
+
+LLM_BACKEND=codex
+```
+
+### 3. 准备运行目录
+
+```bash
+mkdir -p /volume1/docker/stock/daily_stock_analysis/codex-home
+mkdir -p /volume1/docker/stock/daily_stock_analysis/data
+mkdir -p /volume1/docker/stock/daily_stock_analysis/logs
+mkdir -p /volume1/docker/stock/daily_stock_analysis/reports
+```
+
+### 4. 构建镜像
+
+```bash
+cd /volume1/docker/stock/daily_stock_analysis
+sudo docker-compose -f ./docker/docker-compose.yml build --no-cache server analyzer
+```
+
+说明：
+- 首次部署、修改了 `docker/Dockerfile` / `requirements.txt` / 前端依赖时，建议使用 `--no-cache`
+- 日常只更新 Python 代码、Bot、API、文档时，通常不需要 `--no-cache`
+
+### 5. Docker 内完成 Codex 登录
+
+```bash
+sudo docker-compose -f ./docker/docker-compose.yml run --rm server codex login --device-auth
+```
+
+说明：
+- Docker / NAS 模式下，分析链路中的 `codex exec` 会优先复用挂载的 `CODEX_HOME`
+- 因此 `codex-home/` 目录必须和 `docker-compose.yml` 的卷挂载保持一致，并且登录动作需要在同一套 compose 配置下完成
+- 若 `/help` 正常、`/analyze` 或 `/a AAPL` 只返回“评分 50 / 未知 / 待补充”，优先检查 `codex-home/` 是否挂载正确，以及是否在当前容器环境中重新执行过 `codex login --device-auth`
+
+验证容器内 `codex`：
+
+```bash
+sudo docker-compose -f ./docker/docker-compose.yml run --rm server sh -lc 'which codex && codex --version'
+sudo docker-compose -f ./docker/docker-compose.yml run --rm server python main.py --llm-smoke-test
+```
+
+### 6. 启动服务
+
+当前推荐保留两个容器：
+- `server`：WebUI + API + 飞书 Bot
+- `analyzer`：定时任务调度器
+
+启动：
+
+```bash
+sudo docker-compose -f ./docker/docker-compose.yml up -d server analyzer
+```
+
+查看状态：
+
+```bash
+sudo docker-compose -f ./docker/docker-compose.yml ps
+```
+
+查看日志：
+
+```bash
+sudo docker-compose -f ./docker/docker-compose.yml logs -f server
+sudo docker-compose -f ./docker/docker-compose.yml logs -f analyzer
+```
+
+### 7. 功能验证
+
+WebUI / API：
+
+```bash
+curl -I http://127.0.0.1:8000/docs
+```
+
+局域网访问：
+
+```text
+http://NAS内网IP:8000
+```
+
+飞书 Bot：
+- `/help`
+- `/market us`
+- `/watchlist list`
+
+### 8. 更新代码
+
+日常更新（推荐，不带 `--no-cache`）：
+
+```bash
+sudo docker run --rm -it \
+  -v /volume1/docker/stock/daily_stock_analysis:/repo \
+  -w /repo \
+  alpine/git \
+  pull
+
+cd /volume1/docker/stock/daily_stock_analysis
+sudo docker-compose -f ./docker/docker-compose.yml build server analyzer
+sudo docker-compose -f ./docker/docker-compose.yml up -d server analyzer
+```
+
+只改 `.env` 或少量运行参数时，可直接重启：
+
+```bash
+cd /volume1/docker/stock/daily_stock_analysis
+sudo docker-compose -f ./docker/docker-compose.yml restart server analyzer
+```
+
+只有在以下情况才建议强制重建：
+- 修改了 [docker/Dockerfile](/Users/zizhen/Documents/repos/codex/daily_stock_analysis/docker/Dockerfile)
+- 修改了 `requirements.txt`
+- 修改了 [apps/dsa-web/package.json](/Users/zizhen/Documents/repos/codex/daily_stock_analysis/apps/dsa-web/package.json) 或 [apps/dsa-web/package-lock.json](/Users/zizhen/Documents/repos/codex/daily_stock_analysis/apps/dsa-web/package-lock.json)
+- 怀疑镜像缓存损坏或 `codex` / apt 依赖安装异常
+
+强制重建命令：
+
+```bash
+cd /volume1/docker/stock/daily_stock_analysis
+sudo docker-compose -f ./docker/docker-compose.yml build --no-cache server analyzer
+sudo docker-compose -f ./docker/docker-compose.yml up -d server analyzer
+```
+
+### 9. 群晖常见问题
+
+`docker: Got permission denied while trying to connect to the Docker daemon socket`
+
+```bash
+sudo docker-compose ...
+sudo docker run ...
+```
+
+`docker compose` 不可用，但 `docker-compose` 可用：
+
+```bash
+sudo docker-compose -f ./docker/docker-compose.yml up -d
+```
+
+`exec: "codex": executable file not found in $PATH`
+
+```bash
+sudo docker run --rm -it \
+  -v /volume1/docker/stock/daily_stock_analysis:/repo \
+  -w /repo \
+  alpine/git \
+  pull
+
+cd /volume1/docker/stock/daily_stock_analysis
+sudo docker-compose -f ./docker/docker-compose.yml build --no-cache server analyzer
+```
+
+`Bind mount failed: ... logs does not exists`
+
+```bash
+mkdir -p /volume1/docker/stock/daily_stock_analysis/data
+mkdir -p /volume1/docker/stock/daily_stock_analysis/logs
+mkdir -p /volume1/docker/stock/daily_stock_analysis/reports
+mkdir -p /volume1/docker/stock/daily_stock_analysis/codex-home
+```
+
+WebUI 添加股票偶发报错：
+- 当前仓库已启用 SQLite `WAL + busy_timeout`
+- 若仍偶发命中 `db_locked`，建议稍后重试并查看：
+
+```bash
+sudo docker-compose -f ./docker/docker-compose.yml logs -f server
+```
+
+飞书 `/analyze` 能返回，但内容大多是“待补充 / 未知”：
+- 先检查容器内 `codex` 是否可用：
+
+```bash
+sudo docker-compose -f ./docker/docker-compose.yml run --rm server sh -lc 'which codex && codex --version'
+sudo docker-compose -f ./docker/docker-compose.yml run --rm server python main.py --llm-smoke-test
+```
+
+- 再盯住服务日志后重新发一次 `/a AAPL`：
+
+```bash
+sudo docker-compose -f ./docker/docker-compose.yml logs -f server
+```
+
+- 如果日志里出现 `Codex CLI 未安装`、`Codex 调用失败`、`Codex 返回了空响应`、`LLM完整性` 等关键字，优先检查：
+  - `codex-home/` 是否在仓库目录下并成功挂载
+  - 是否用当前 compose 环境执行过 `codex login --device-auth`
+  - `.env` 中 `LLM_BACKEND=codex` 是否和当前部署一致
+
 ## 📋 部署方案对比
 
 | 方案 | 优点 | 缺点 | 推荐场景 |
@@ -17,7 +283,7 @@
 
 ---
 
-## 🐳 方案一：Docker Compose 部署（推荐）
+## 🐳 阿里云 / Ubuntu：方案一：Docker Compose 部署（推荐）
 
 ### 1. 安装 Docker
 
@@ -87,7 +353,7 @@ docker-compose -f ./docker/docker-compose.yml exec stock-analyzer python main.py
 
 ---
 
-## 🖥️ 方案二：直接部署
+## 🖥️ 阿里云 / Ubuntu：方案二：直接部署
 
 ### 1. 安装 Python 环境
 
@@ -157,7 +423,7 @@ codex login --device-auth
 
 ---
 
-## 🔧 方案三：Systemd 服务
+## 🔧 阿里云 / Ubuntu：方案三：Systemd 服务
 
 创建 systemd 服务文件实现开机自启和自动重启：
 

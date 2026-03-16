@@ -16,6 +16,7 @@ import logging
 from typing import Optional
 
 from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
+from sqlalchemy.exc import OperationalError
 
 from api.v1.schemas.stocks import (
     ExtractFromImageResponse,
@@ -54,6 +55,19 @@ ALLOWED_MIME_STR = ", ".join(ALLOWED_MIME)
 
 def _get_watchlist_service() -> WatchlistService:
     return WatchlistService()
+
+
+def _raise_watchlist_db_locked(exc: OperationalError) -> None:
+    message = str(exc).lower()
+    if "database is locked" not in message and "database table is locked" not in message:
+        raise exc
+    raise HTTPException(
+        status_code=503,
+        detail={
+            "error": "db_locked",
+            "message": "数据库正忙，请稍后重试。",
+        },
+    ) from exc
 
 
 @router.get(
@@ -102,6 +116,8 @@ def create_watchlist_item(payload: WatchlistItemInput) -> WatchlistItem:
         return WatchlistItem.model_validate(item)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail={"error": "bad_request", "message": str(exc)})
+    except OperationalError as exc:
+        _raise_watchlist_db_locked(exc)
 
 
 @router.put(
@@ -117,6 +133,8 @@ def update_watchlist_item(item_id: int, payload: WatchlistItemInput) -> Watchlis
     except ValueError as exc:
         status_code = 404 if "not found" in str(exc) else 400
         raise HTTPException(status_code=status_code, detail={"error": "bad_request", "message": str(exc)})
+    except OperationalError as exc:
+        _raise_watchlist_db_locked(exc)
 
 
 @router.delete(
@@ -125,7 +143,10 @@ def update_watchlist_item(item_id: int, payload: WatchlistItemInput) -> Watchlis
 )
 def delete_watchlist_item(item_id: int) -> dict:
     service = _get_watchlist_service()
-    deleted = service.delete_item(item_id)
+    try:
+        deleted = service.delete_item(item_id)
+    except OperationalError as exc:
+        _raise_watchlist_db_locked(exc)
     if not deleted:
         raise HTTPException(status_code=404, detail={"error": "not_found", "message": "watchlist item not found"})
     return {"success": True, "deleted": deleted}
@@ -144,6 +165,8 @@ def set_watchlist_item_active(item_id: int, active: bool = Query(...)) -> Watchl
     except ValueError as exc:
         status_code = 404 if "not found" in str(exc) else 400
         raise HTTPException(status_code=status_code, detail={"error": "bad_request", "message": str(exc)})
+    except OperationalError as exc:
+        _raise_watchlist_db_locked(exc)
 
 
 @router.post(
@@ -159,6 +182,8 @@ def create_watchlist_relation(payload: WatchlistRelationInput) -> WatchlistRelat
     except ValueError as exc:
         status_code = 404 if "not found" in str(exc) else 400
         raise HTTPException(status_code=status_code, detail={"error": "bad_request", "message": str(exc)})
+    except OperationalError as exc:
+        _raise_watchlist_db_locked(exc)
 
 
 @router.delete(
@@ -167,7 +192,10 @@ def create_watchlist_relation(payload: WatchlistRelationInput) -> WatchlistRelat
 )
 def delete_watchlist_relation(relation_id: int) -> dict:
     service = _get_watchlist_service()
-    deleted = service.delete_relation(relation_id)
+    try:
+        deleted = service.delete_relation(relation_id)
+    except OperationalError as exc:
+        _raise_watchlist_db_locked(exc)
     if not deleted:
         raise HTTPException(status_code=404, detail={"error": "not_found", "message": "watchlist relation not found"})
     return {"success": True, "deleted": deleted}

@@ -42,6 +42,7 @@ from sqlalchemy import (
     delete,
     desc,
     func,
+    event,
 )
 from sqlalchemy.orm import (
     declarative_base,
@@ -49,7 +50,7 @@ from sqlalchemy.orm import (
     Session,
     aliased,
 )
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, OperationalError
 
 from src.watchlist_utils import (
     ANALYZABLE_SECURITY_TYPES,
@@ -519,7 +520,11 @@ class DatabaseManager:
             db_url,
             echo=False,  # 设为 True 可查看 SQL 语句
             pool_pre_ping=True,  # 连接健康检查
+            connect_args={"timeout": 30} if db_url.startswith("sqlite:///") else {},
         )
+
+        if db_url.startswith("sqlite:///"):
+            self._configure_sqlite_engine()
         
         # 创建 Session 工厂
         self._SessionLocal = sessionmaker(
@@ -536,6 +541,20 @@ class DatabaseManager:
 
         # 注册退出钩子，确保程序退出时关闭数据库连接
         atexit.register(DatabaseManager._cleanup_engine, self._engine)
+
+    def _configure_sqlite_engine(self) -> None:
+        """Apply SQLite pragmas to reduce transient lock contention."""
+
+        @event.listens_for(self._engine, "connect")
+        def _set_sqlite_pragmas(dbapi_connection, _connection_record) -> None:
+            cursor = dbapi_connection.cursor()
+            try:
+                cursor.execute("PRAGMA journal_mode=WAL")
+                cursor.execute("PRAGMA synchronous=NORMAL")
+                cursor.execute("PRAGMA busy_timeout=30000")
+                cursor.execute("PRAGMA foreign_keys=ON")
+            finally:
+                cursor.close()
     
     @classmethod
     def get_instance(cls) -> 'DatabaseManager':
