@@ -18,6 +18,7 @@ import json
 import logging
 import os
 import re
+import threading
 from datetime import datetime, date, timedelta
 from pathlib import Path
 from typing import Optional, List, Dict, Any, TYPE_CHECKING, Tuple
@@ -492,12 +493,16 @@ class DatabaseManager:
     
     _instance: Optional['DatabaseManager'] = None
     _initialized: bool = False
+    _instance_lock = threading.Lock()
+    _init_lock = threading.Lock()
     
     def __new__(cls, *args, **kwargs):
         """单例模式实现"""
         if cls._instance is None:
-            cls._instance = super().__new__(cls)
-            cls._instance._initialized = False
+            with cls._instance_lock:
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
+                    cls._instance._initialized = False
         return cls._instance
     
     def __init__(self, db_url: Optional[str] = None):
@@ -509,38 +514,41 @@ class DatabaseManager:
         """
         if getattr(self, '_initialized', False):
             return
+        with self.__class__._init_lock:
+            if getattr(self, '_initialized', False):
+                return
         
-        if db_url is None:
-            db_path = Path(os.getenv("DATABASE_PATH", "./data/stock_analysis.db"))
-            db_path.parent.mkdir(parents=True, exist_ok=True)
-            db_url = f"sqlite:///{db_path.absolute()}"
-        
-        # 创建数据库引擎
-        self._engine = create_engine(
-            db_url,
-            echo=False,  # 设为 True 可查看 SQL 语句
-            pool_pre_ping=True,  # 连接健康检查
-            connect_args={"timeout": 30} if db_url.startswith("sqlite:///") else {},
-        )
+            if db_url is None:
+                db_path = Path(os.getenv("DATABASE_PATH", "./data/stock_analysis.db"))
+                db_path.parent.mkdir(parents=True, exist_ok=True)
+                db_url = f"sqlite:///{db_path.absolute()}"
+            
+            # 创建数据库引擎
+            self._engine = create_engine(
+                db_url,
+                echo=False,  # 设为 True 可查看 SQL 语句
+                pool_pre_ping=True,  # 连接健康检查
+                connect_args={"timeout": 30} if db_url.startswith("sqlite:///") else {},
+            )
 
-        if db_url.startswith("sqlite:///"):
-            self._configure_sqlite_engine()
-        
-        # 创建 Session 工厂
-        self._SessionLocal = sessionmaker(
-            bind=self._engine,
-            autocommit=False,
-            autoflush=False,
-        )
-        
-        # 创建所有表
-        Base.metadata.create_all(self._engine)
+            if db_url.startswith("sqlite:///"):
+                self._configure_sqlite_engine()
+            
+            # 创建 Session 工厂
+            self._SessionLocal = sessionmaker(
+                bind=self._engine,
+                autocommit=False,
+                autoflush=False,
+            )
+            
+            # 创建所有表
+            Base.metadata.create_all(self._engine)
 
-        self._initialized = True
-        logger.info(f"数据库初始化完成: {db_url}")
+            self._initialized = True
+            logger.info(f"数据库初始化完成: {db_url}")
 
-        # 注册退出钩子，确保程序退出时关闭数据库连接
-        atexit.register(DatabaseManager._cleanup_engine, self._engine)
+            # 注册退出钩子，确保程序退出时关闭数据库连接
+            atexit.register(DatabaseManager._cleanup_engine, self._engine)
 
     def _configure_sqlite_engine(self) -> None:
         """Apply SQLite pragmas to reduce transient lock contention."""
