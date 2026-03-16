@@ -28,6 +28,7 @@ class WatchlistCommand(BotCommand):
         /watchlist add AAPL
         /watchlist add 510300 type=etf sector=宽基,指数 tag=观察
         /watchlist list
+        /watchlist list all
         /watchlist list market=cn active=true
     """
 
@@ -112,6 +113,7 @@ class WatchlistCommand(BotCommand):
         )
 
     def _handle_list(self, service: WatchlistService, args: List[str]) -> BotResponse:
+        show_all = any((arg or "").strip().lower() == "all" for arg in args)
         options = self._parse_options(args)
         active_value = self._parse_optional_bool(options.get("active"))
         try:
@@ -132,7 +134,7 @@ class WatchlistCommand(BotCommand):
         if not items:
             return BotResponse.text_response("当前筛选条件下没有匹配的 watchlist 标的。")
 
-        preview = items[:12]
+        preview = items if show_all else items[:12]
         lines = [
             f"📋 **Watchlist（共 {len(items)} 条）**",
             "",
@@ -159,6 +161,7 @@ class WatchlistCommand(BotCommand):
             [
                 "",
                 "示例：`/watchlist add AAPL sector=AI,消费电子 concept=果链 tag=观察`",
+                "完整列表：`/watchlist list all`",
             ]
         )
         return BotResponse.markdown_response("\n".join(lines))
@@ -204,5 +207,6 @@ class WatchlistCommand(BotCommand):
                 "• `/watchlist add <代码> [name=名称] [market=cn|hk|us] [type=stock|etf|option|index|fund|other]`",
                 "• `/watchlist add AAPL sector=AI,消费电子 concept=果链 tag=观察`",
                 "• `/watchlist list [market=cn] [type=etf] [active=true|false] [q=关键词]`",
+                "• `/watchlist list all` 查看全部标的（不截断预览）",
             ]
         )

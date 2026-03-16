@@ -379,6 +379,7 @@ LITELLM_MODEL=openai/deepseek-chat
 - **Bot 命令**：`/ask` 策略分析（支持多股对比）、`/chat` 自由对话
 - **Bot 大盘复盘**：`/market` 默认按 `.env` 中的 `MARKET_REVIEW_REGION` 执行，也支持 `/market cn`、`/market us`、`/market both` 临时覆盖
 - **Watchlist Bot 命令**：`/watchlist add AAPL sector=AI,消费电子 tag=观察` 可直接将标的加入结构化 watchlist；`/watchlist list market=cn active=true` 可快速查看当前标的池
+- **Watchlist 全量查看**：`/watchlist list all` 可直接在飞书 / 钉钉中查看全部关注列表（不再只展示前几条）
 - **自定义策略**：在 `strategies/` 目录下新建 YAML 文件即可添加策略，无需写代码
 - **多 Agent 架构**（实验性）：设置 `AGENT_ARCH=multi` 启用 Technical → Intel → Risk → Strategy → Decision 多 Agent 级联编排，通过 `AGENT_ORCHESTRATOR_MODE` 控制深度（quick/standard/full/strategy）。超时或中间阶段 JSON 解析失败时，系统会优先保留已完成阶段结果并降级生成最小可用仪表盘，避免整份报告直接退回默认占位。详见 [完整配置指南](docs/full-guide.md)
 
