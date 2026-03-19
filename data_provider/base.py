@@ -808,6 +808,37 @@ class DataFetcherManager:
             logger.error(f"[数据源终止] {stock_code} 获取失败: elapsed={elapsed:.2f}s\n{error_summary}")
             raise DataFetchError(error_summary)
 
+        # 快速路径：港股优先尝试 Futu，再回退到通用链路
+        if _is_hk_market(stock_code):
+            for attempt, fetcher in enumerate(self._fetchers, start=1):
+                if fetcher.name != "FutuFetcher":
+                    continue
+                try:
+                    logger.info(
+                        f"[数据源尝试 {attempt}/{total_fetchers}] [{fetcher.name}] "
+                        f"港股 {stock_code} 优先路由..."
+                    )
+                    df = fetcher.get_daily_data(
+                        stock_code=stock_code,
+                        start_date=start_date,
+                        end_date=end_date,
+                        days=days,
+                    )
+                    if df is not None and not df.empty:
+                        elapsed = time.time() - request_start
+                        logger.info(
+                            f"[数据源完成] {stock_code} 使用 [{fetcher.name}] 获取成功: "
+                            f"rows={len(df)}, elapsed={elapsed:.2f}s"
+                        )
+                        return df, fetcher.name
+                except Exception as e:
+                    error_type, error_reason = summarize_exception(e)
+                    errors.append(f"[{fetcher.name}] {error_type}: {error_reason}")
+                    logger.warning(
+                        f"[数据源失败] 港股 {stock_code} [{fetcher.name}] "
+                        f"error_type={error_type}, reason={error_reason}"
+                    )
+
         for attempt, fetcher in enumerate(self._fetchers, start=1):
             try:
                 logger.info(f"[数据源尝试 {attempt}/{total_fetchers}] [{fetcher.name}] 获取 {stock_code}...")
@@ -999,13 +1030,33 @@ class DataFetcherManager:
             logger.warning(f"[实时行情] 美股 {stock_code} 无可用数据源")
             return None
         
+        primary_quote = None
+        supplement_attempts = 0
+
+        # 港股优先尝试 Futu，再用常规实时行情优先级补充/回退
+        if _is_hk_market(stock_code):
+            for fetcher in self._fetchers:
+                if fetcher.name != "FutuFetcher":
+                    continue
+                if hasattr(fetcher, 'get_realtime_quote'):
+                    try:
+                        quote = fetcher.get_realtime_quote(stock_code)
+                        if quote is not None and quote.has_basic_data():
+                            logger.info(
+                                f"[实时行情] 港股 {stock_code} 成功获取 (来源: {getattr(quote.source, 'value', fetcher.name)})"
+                            )
+                            primary_quote = quote
+                            if not self._quote_needs_supplement(primary_quote):
+                                return primary_quote
+                            logger.debug(f"[实时行情] 港股 {stock_code} 使用 Futu 获取基础字段，继续尝试后续数据源补充")
+                            break
+                    except Exception as e:
+                        logger.warning(f"[实时行情] 港股 {stock_code} 获取失败 [{fetcher.name}]: {e}")
+
         # 获取配置的数据源优先级
         source_priority = config.realtime_source_priority.split(',')
-        
+
         errors = []
-        # primary_quote holds the first successful result; we may supplement
-        # missing fields (volume_ratio, turnover_rate, etc.) from later sources.
-        primary_quote = None
         
         for source in source_priority:
             source = source.strip().lower()

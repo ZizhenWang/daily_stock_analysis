@@ -56,7 +56,7 @@
 | 行情数据 | AkShare、Tushare、Pytdx、Baostock、YFinance、Futu OpenAPI（通过 OpenD） |
 | 新闻搜索 | Tavily、SerpAPI、Bocha、Brave、MiniMax |
 
-> 注：如启用 `FUTU_ENABLED=true`，美股个股历史/实时行情会优先尝试 Futu，再回退到 YFinance；美股指数仍默认使用 YFinance。
+> 注：如启用 `FUTU_ENABLED=true`，港股历史/实时行情会优先尝试 Futu，再回退到现有港股数据源；美股个股历史/实时行情也会优先尝试 Futu，再回退到 YFinance；美股指数仍默认使用 YFinance。
 
 ### 内置交易纪律
 
@@ -163,7 +163,7 @@
 | `BRAVE_API_KEYS` | [Brave Search](https://brave.com/search/api/) API（隐私优先，美股优化，多个key用逗号分隔） | 可选 |
 | `SEARXNG_BASE_URLS` | SearXNG 自建实例（无配额兜底，需在 settings.yml 启用 format: json） | 可选 |
 | `TUSHARE_TOKEN` | [Tushare Pro](https://tushare.pro/weborder/#/login?reg=834638 ) Token（默认作为中国市场 fallback 数据源，不再自动抢最高优先级） | 可选 |
-| `FUTU_ENABLED` / `FUTU_HOST` / `FUTU_PORT` | 富途 OpenAPI / OpenD 行情数据源（优先补强港股/美股；需本地或局域网 OpenD 服务） | 可选 |
+| `FUTU_ENABLED` / `FUTU_HOST` / `FUTU_PORT` | 富途 OpenAPI / OpenD 行情数据源（启用后港股优先走 Futu，亦可补强美股；需本地或局域网 OpenD 服务） | 可选 |
 | `PREFETCH_REALTIME_QUOTES` | 实时行情预取开关：设为 `false` 可禁用全市场预取（默认 `true`） | 可选 |
 | `WECHAT_MSG_TYPE` | 企微消息类型，默认 markdown，支持配置 text 类型，发送纯 markdown 文本 | 可选 |
 | `NEWS_MAX_AGE_DAYS` | 新闻最大时效（天），默认 3，避免使用过时信息 | 可选 |

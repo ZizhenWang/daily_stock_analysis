@@ -117,6 +117,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - 📖 **LLM configuration guide** — new `docs/LLM_CONFIG_GUIDE.md` covering 3-tier config, quick start, Vision/Agent/troubleshooting
 
 ### Fixed
+- 🐛 **Futu 港股优先路由** — when `FUTU_ENABLED=true`, HK symbols now try `FutuFetcher` first for both历史日线 and realtime quotes before falling back to the generic HK provider chain, so NAS/OpenD deployments no longer get pre-empted by AkShare/EFinance just because those fetchers have a higher generic priority
 - 🐛 **analyze_trend always reports No historical data** (#600) — now fetches from DB/DataFetcher instead of broken `get_analysis_context`
 - 🐛 **Chip structure fallback when LLM omits it** (#589) — auto-fills from data source chip data for consistent display across models
 - 🐛 **History sniper points show raw text** (#452) — prioritizes original strings over compressed numeric values
