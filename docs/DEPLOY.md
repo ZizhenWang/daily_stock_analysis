@@ -117,6 +117,7 @@ sudo docker-compose -f ./docker/docker-compose.yml run --rm server codex login -
 - Docker / NAS 模式下，分析链路中的 `codex exec` 会优先复用挂载的 `CODEX_HOME`
 - 因此 `codex-home/` 目录必须和 `docker-compose.yml` 的卷挂载保持一致，并且登录动作需要在同一套 compose 配置下完成
 - 若使用 `codex login` 的 API key 模式，也推荐继续在当前 compose 环境中完成登录；仓库现会在每次调用前完整复用挂载的 `CODEX_HOME`，以兼容账号登录和 API key 登录两种状态文件结构
+- 若 `--llm-smoke-test` 报错里包含 `Refusing to create helper binaries under temporary dir "/tmp"`，通常是较新 Codex CLI 不再接受 `/tmp` 下的临时 `CODEX_HOME`；当前仓库已改为在项目内持久化临时目录运行，无需额外处理，更新代码并重建容器即可
 - 若 `/help` 正常、`/analyze` 或 `/a AAPL` 只返回“评分 50 / 未知 / 待补充”，优先检查 `codex-home/` 是否挂载正确，以及是否在当前容器环境中重新执行过 `codex login --device-auth`
 
 验证容器内 `codex`：

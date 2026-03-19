@@ -53,6 +53,16 @@ class CodexBackend:
         self._config = config
         self._cwd = Path(cwd or Path(__file__).parent.parent).resolve()
 
+    def _temp_root(self) -> Path:
+        """Return a writable non-/tmp root for per-call Codex state."""
+        env_codex_home = os.environ.get("CODEX_HOME", "").strip()
+        if env_codex_home:
+            base = Path(env_codex_home).resolve().parent / ".codex-runtime-tmp"
+        else:
+            base = self._cwd / ".codex-runtime-tmp"
+        base.mkdir(parents=True, exist_ok=True)
+        return base
+
     @staticmethod
     def command_path() -> Optional[str]:
         """Return the resolved Codex binary path, if available."""
@@ -75,7 +85,10 @@ class CodexBackend:
         if not codex_bin:
             raise CodexBackendError("Codex CLI 未安装或不在 PATH 中")
 
-        with tempfile.TemporaryDirectory(prefix="codex-backend-") as temp_dir:
+        with tempfile.TemporaryDirectory(
+            prefix="codex-backend-",
+            dir=str(self._temp_root()),
+        ) as temp_dir:
             temp_path = Path(temp_dir)
             schema_path = temp_path / "schema.json"
             output_path = temp_path / "response.json"
