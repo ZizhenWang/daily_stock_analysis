@@ -1030,11 +1030,13 @@ class DataFetcherManager:
             logger.warning(f"[实时行情] 美股 {stock_code} 无可用数据源")
             return None
         
+        is_hk_market = _is_hk_market(stock_code)
         primary_quote = None
         supplement_attempts = 0
+        supplement_attempt_limit = 1 if is_hk_market else 2
 
-        # 港股优先尝试 Futu，再用常规实时行情优先级补充/回退
-        if _is_hk_market(stock_code):
+        # 港股优先尝试 Futu；若关键补充字段仍缺失，再有限尝试后续数据源
+        if is_hk_market:
             for fetcher in self._fetchers:
                 if fetcher.name != "FutuFetcher":
                     continue
@@ -1048,7 +1050,7 @@ class DataFetcherManager:
                             primary_quote = quote
                             if not self._quote_needs_supplement(primary_quote):
                                 return primary_quote
-                            logger.debug(f"[实时行情] 港股 {stock_code} 使用 Futu 获取基础字段，继续尝试后续数据源补充")
+                            logger.debug(f"[实时行情] 港股 {stock_code} 使用 Futu 获取基础字段，继续尝试有限补充")
                             break
                     except Exception as e:
                         logger.warning(f"[实时行情] 港股 {stock_code} 获取失败 [{fetcher.name}]: {e}")
@@ -1062,6 +1064,14 @@ class DataFetcherManager:
             source = source.strip().lower()
             
             try:
+                if primary_quote is not None:
+                    if source == "futu":
+                        continue
+                    if supplement_attempts >= supplement_attempt_limit:
+                        logger.debug(f"[实时行情] {stock_code} 补充尝试已达上限，停止继续")
+                        break
+                    supplement_attempts += 1
+
                 quote = None
                 
                 if source == "efinance":
@@ -1123,11 +1133,7 @@ class DataFetcherManager:
                         logger.debug(f"[实时行情] {stock_code} 部分字段缺失，尝试从后续数据源补充")
                         supplement_attempts = 0
                     else:
-                        # Supplement missing fields from this source (limit attempts)
-                        supplement_attempts += 1
-                        if supplement_attempts > 1:
-                            logger.debug(f"[实时行情] {stock_code} 补充尝试已达上限，停止继续")
-                            break
+                        # Supplement missing fields from this source
                         merged = self._merge_quote_fields(primary_quote, quote)
                         if merged:
                             logger.info(f"[实时行情] {stock_code} 从 {source} 补充了缺失字段: {merged}")

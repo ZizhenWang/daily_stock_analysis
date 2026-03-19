@@ -214,6 +214,81 @@ http://NAS内网IP:8000
 - `/market us`
 - `/watchlist list`
 
+### 7.1 富途 OpenD（NAS 推荐做法）
+
+当前仓库对富途的接入定位是：
+- `futu-api` 作为应用内 SDK
+- `OpenD` 作为独立行情网关
+- DSA 通过 `FUTU_HOST:FUTU_PORT` 连接 OpenD
+
+推荐做法：
+- 不要把 OpenD 塞进 `server` / `analyzer` 容器
+- 建议在群晖上单独跑一个 `futu-opend` 容器或宿主机常驻服务
+- 首次登录可人工完成短信验证码，后续复用持久化目录常驻运行
+
+群晖常见目录：
+
+```text
+/volume1/docker/futu-opend
+  compose.yaml
+  start-opend.sh
+  Futu_OpenD_xxx/
+```
+
+当前验证过的要点：
+- `FUTU_HOST` 应填写 NAS 局域网 IP，例如 `192.168.31.12`
+- 如果 DSA 与 OpenD 在同一台 NAS 的不同容器中，**不要写 `127.0.0.1`**
+- `OpenD` 常见监听端口可自定义，如 `11123`
+- `FutuOpenD.xml` 中建议设置：
+
+```xml
+<ip>0.0.0.0</ip>
+<api_port>11123</api_port>
+```
+
+DSA `.env` 示例：
+
+```env
+FUTU_ENABLED=true
+FUTU_HOST=192.168.31.12
+FUTU_PORT=11123
+FUTU_MARKETS=hk
+FUTU_REALTIME_ENABLED=true
+FUTU_HISTORY_ENABLED=true
+```
+
+补充说明：
+- 当前 Futu Phase 1 仅接入**拉取型行情**：历史 K 线、实时快照 / 实时报价
+- 港股历史/实时行情会优先尝试 Futu，再回退到现有港股源
+- 美股个股会优先尝试 Futu，再回退到 YFinance；美股指数仍默认 YFinance
+- A 股是否可用取决于 OpenD 当前账号的实际权限，请以 OpenD 启动日志和 `OpenQuoteContext` 实测为准
+
+最小连通性验证：
+
+```bash
+cd /volume1/docker/stock/daily_stock_analysis
+sudo docker-compose -f ./docker/docker-compose.yml run -T --rm server python - <<'PY'
+from futu import OpenQuoteContext
+ctx = OpenQuoteContext(host="192.168.31.12", port=11123)
+print("connected")
+ctx.close()
+PY
+```
+
+最小行情验证（港股）：
+
+```bash
+cd /volume1/docker/stock/daily_stock_analysis
+sudo docker-compose -f ./docker/docker-compose.yml run -T --rm server python - <<'PY'
+from futu import OpenQuoteContext, RET_OK
+ctx = OpenQuoteContext(host="192.168.31.12", port=11123)
+ret, data = ctx.get_market_snapshot(["HK.00700"])
+print("ret =", ret)
+print(data if ret != RET_OK else data.head().to_string())
+ctx.close()
+PY
+```
+
 ### 8. 更新代码
 
 日常更新（推荐，不带 `--no-cache`）：
