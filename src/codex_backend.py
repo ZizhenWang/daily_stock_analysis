@@ -97,45 +97,14 @@ class CodexBackend:
             codex_home.mkdir(parents=True, exist_ok=True)
             self._prepare_codex_home(codex_home)
 
-            command = [
+            completed = self._run_codex_exec(
                 codex_bin,
-                "exec",
-                "--sandbox",
-                "read-only",
-                "--skip-git-repo-check",
-                "--color",
-                "never",
-                "--output-schema",
-                str(schema_path),
-                "-o",
-                str(output_path),
-            ]
-            if self._config.codex_model:
-                command.extend(["--model", self._config.codex_model])
-            for image_path in image_paths or []:
-                command.extend(["--image", str(image_path)])
-            command.extend(["-C", str(self._cwd), prompt])
-
-            logger.debug("Running Codex backend command: %s", command)
-
-            try:
-                env = os.environ.copy()
-                env["CODEX_HOME"] = str(codex_home)
-                completed = subprocess.run(
-                    command,
-                    cwd=str(self._cwd),
-                    env=env,
-                    capture_output=True,
-                    text=True,
-                    timeout=self._config.codex_timeout_seconds,
-                    check=False,
-                )
-            except subprocess.TimeoutExpired as exc:
-                raise CodexBackendError(
-                    f"Codex 调用超时（>{self._config.codex_timeout_seconds} 秒）"
-                ) from exc
-            except OSError as exc:
-                raise CodexBackendError(f"启动 Codex CLI 失败: {exc}") from exc
+                prompt,
+                codex_home,
+                image_paths=image_paths,
+                schema_path=schema_path,
+                output_path=output_path,
+            )
 
             stdout = (completed.stdout or "").strip()
             stderr = (completed.stderr or "").strip()
@@ -154,6 +123,22 @@ class CodexBackend:
                     _snippet(stdout),
                     _snippet(stderr),
                 )
+                raw_output = stdout
+
+            if not raw_output:
+                logger.warning(
+                    "Structured Codex output is empty; retrying with plain JSON prompt fallback. stderr=%s",
+                    _snippet(stderr),
+                )
+                fallback_prompt = self._build_plain_json_prompt(prompt, schema)
+                fallback_completed = self._run_codex_exec(
+                    codex_bin,
+                    fallback_prompt,
+                    codex_home,
+                    image_paths=image_paths,
+                )
+                stdout = (fallback_completed.stdout or "").strip()
+                stderr = (fallback_completed.stderr or "").strip()
                 raw_output = stdout
 
             if not raw_output:
@@ -183,6 +168,71 @@ class CodexBackend:
                 stderr=stderr,
                 model_used=f"codex:{self._config.codex_model or 'default'}",
             )
+
+    def _run_codex_exec(
+        self,
+        codex_bin: str,
+        prompt: str,
+        codex_home: Path,
+        *,
+        image_paths: Optional[List[Path]] = None,
+        schema_path: Optional[Path] = None,
+        output_path: Optional[Path] = None,
+    ) -> subprocess.CompletedProcess[str]:
+        """Run codex exec with the given prompt and optional structured-output settings."""
+        command = [
+            codex_bin,
+            "exec",
+            "--sandbox",
+            "read-only",
+            "--skip-git-repo-check",
+            "--color",
+            "never",
+        ]
+        if schema_path and output_path:
+            command.extend([
+                "--output-schema",
+                str(schema_path),
+                "-o",
+                str(output_path),
+            ])
+        if self._config.codex_model:
+            command.extend(["--model", self._config.codex_model])
+        for image_path in image_paths or []:
+            command.extend(["--image", str(image_path)])
+        command.extend(["-C", str(self._cwd), prompt])
+
+        logger.debug("Running Codex backend command: %s", command)
+
+        try:
+            env = os.environ.copy()
+            env["CODEX_HOME"] = str(codex_home)
+            return subprocess.run(
+                command,
+                cwd=str(self._cwd),
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=self._config.codex_timeout_seconds,
+                check=False,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise CodexBackendError(
+                f"Codex 调用超时（>{self._config.codex_timeout_seconds} 秒）"
+            ) from exc
+        except OSError as exc:
+            raise CodexBackendError(f"启动 Codex CLI 失败: {exc}") from exc
+
+    @staticmethod
+    def _build_plain_json_prompt(prompt: str, schema: Dict[str, Any]) -> str:
+        """Build a plain-text fallback prompt that asks Codex to print raw JSON only."""
+        return (
+            f"{prompt}\n\n"
+            "The structured output file path is unavailable in this environment. "
+            "Return only one raw JSON object that matches this JSON Schema exactly. "
+            "Do not wrap it in markdown fences and do not add any explanation.\n"
+            f"JSON Schema:\n{json.dumps(schema, ensure_ascii=False)}"
+        )
 
     @staticmethod
     def _prepare_codex_home(target_dir: Path) -> None:
