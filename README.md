@@ -422,7 +422,7 @@ LITELLM_MODEL=openai/deepseek-chat
 > ```bash
 > docker-compose -f ./docker/docker-compose.yml run --rm server codex login --device-auth
 > ```
-> 登录完成后，`server` 与 `analyzer` 容器会共享 `CODEX_HOME=/codex-home` 中的登录态。若你改成 `codex login` 的 API key 模式，也建议继续在同一套 compose 环境中完成登录；当前仓库会在每次调用前完整复用挂载的 `CODEX_HOME`，而不是只复制少量认证文件。
+> 登录完成后，`server` 与 `analyzer` 容器会共享 `CODEX_HOME=/codex-home` 中的登录态。若你改成 `codex login` 的 API key 模式，也建议继续在同一套 compose 环境中完成登录；当前仓库会在每次调用前完整复用挂载的 `CODEX_HOME`，而不是只复制少量认证文件。若你希望账号登录和 API key 登录并存，可在 `.env` 中设置 `CODEX_AUTH_MODE=account|api|shared`，容器会自动把实际登录目录切换到 `/codex-home/account`、`/codex-home/api` 或旧版共享目录 `/codex-home`。
 > 群晖 NAS 的完整落地步骤、代码同步命令和常见问题，现已并入 [`docs/DEPLOY.md`](/Users/zizhen/Documents/repos/codex/daily_stock_analysis/docs/DEPLOY.md) 的前部章节。
 
 ## 🗺️ Roadmap

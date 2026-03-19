@@ -54,10 +54,12 @@ COPY bot/ ./bot/
 COPY patch/ ./patch/
 COPY src/ ./src/
 COPY strategies/ ./strategies/
+COPY docker/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 COPY --from=web-builder /app/static ./static/
 
 # 创建数据目录
 RUN mkdir -p /app/data /app/logs /app/reports
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 # 设置环境变量默认值
 ENV PYTHONUNBUFFERED=1
@@ -78,6 +80,8 @@ VOLUME ["/app/data", "/app/logs", "/app/reports", "/codex-home"]
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
     CMD curl -f http://localhost:8000/api/health || curl -f http://localhost:8000/health \
     || python -c "import sys; sys.exit(0)"
+
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 
 # 默认命令（可被覆盖）
 CMD ["python", "main.py", "--schedule"]

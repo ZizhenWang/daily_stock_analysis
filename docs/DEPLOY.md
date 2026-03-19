@@ -117,6 +117,13 @@ sudo docker-compose -f ./docker/docker-compose.yml run --rm server codex login -
 - Docker / NAS 模式下，分析链路中的 `codex exec` 会优先复用挂载的 `CODEX_HOME`
 - 因此 `codex-home/` 目录必须和 `docker-compose.yml` 的卷挂载保持一致，并且登录动作需要在同一套 compose 配置下完成
 - 若使用 `codex login` 的 API key 模式，也推荐继续在当前 compose 环境中完成登录；仓库现会在每次调用前完整复用挂载的 `CODEX_HOME`，以兼容账号登录和 API key 登录两种状态文件结构
+- 如需同时保留“账号登录”和“API key 登录”，可在 `.env` 中设置 `CODEX_AUTH_MODE=account|api|shared`：
+  - `shared`：直接使用 `/codex-home`（默认，兼容旧部署）
+  - `account`：使用 `/codex-home/account`
+  - `api`：使用 `/codex-home/api`
+- 这意味着 NAS 宿主机上的配置文件也应放在对应目录下，例如：
+  - `/volume1/docker/stock/daily_stock_analysis/codex-home/account/config.toml`
+  - `/volume1/docker/stock/daily_stock_analysis/codex-home/api/config.toml`
 - 若 `--llm-smoke-test` 报错里包含 `Refusing to create helper binaries under temporary dir "/tmp"`，通常是较新 Codex CLI 不再接受 `/tmp` 下的临时 `CODEX_HOME`；当前仓库已改为在项目内持久化临时目录运行，无需额外处理，更新代码并重建容器即可
 - 若 `/help` 正常、`/analyze` 或 `/a AAPL` 只返回“评分 50 / 未知 / 待补充”，优先检查 `codex-home/` 是否挂载正确，以及是否在当前容器环境中重新执行过 `codex login --device-auth`
 
@@ -125,6 +132,41 @@ sudo docker-compose -f ./docker/docker-compose.yml run --rm server codex login -
 ```bash
 sudo docker-compose -f ./docker/docker-compose.yml run --rm server sh -lc 'which codex && codex --version'
 sudo docker-compose -f ./docker/docker-compose.yml run --rm server python main.py --llm-smoke-test
+```
+
+若当前要把 NAS 上的 `config.toml` 写到 API key 登录目录，可直接执行：
+
+```bash
+mkdir -p /volume1/docker/stock/daily_stock_analysis/codex-home/api
+cat > /volume1/docker/stock/daily_stock_analysis/codex-home/api/config.toml <<'EOF'
+model_provider = "OpenAI"
+model = "gpt-5.4"
+review_model = "gpt-5.4"
+model_reasoning_effort = "xhigh"
+disable_response_storage = true
+network_access = "enabled"
+windows_wsl_setup_acknowledged = true
+model_context_window = 1000000
+model_auto_compact_token_limit = 900000
+
+[model_providers.OpenAI]
+name = "OpenAI"
+base_url = "https://cc.sub.258000.sbs"
+wire_api = "responses"
+requires_openai_auth = true
+EOF
+```
+
+然后在 `.env` 中设置：
+
+```env
+CODEX_AUTH_MODE=api
+```
+
+如果要切回账号登录，则把 `CODEX_AUTH_MODE=account`，并在对应目录里执行一次：
+
+```bash
+sudo docker-compose -f ./docker/docker-compose.yml run --rm server codex login --device-auth
 ```
 
 ### 6. 启动服务
