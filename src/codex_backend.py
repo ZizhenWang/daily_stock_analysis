@@ -28,6 +28,14 @@ class CodexBackendError(RuntimeError):
     """Raised when the Codex CLI backend is unavailable or returns invalid data."""
 
 
+def _snippet(text: str, limit: int = 400) -> str:
+    """Return a compact single-line snippet for logs and error messages."""
+    compact = " ".join((text or "").split())
+    if len(compact) <= limit:
+        return compact
+    return compact[:limit] + "..."
+
+
 @dataclass
 class CodexRunResult:
     """Structured result from one Codex CLI invocation."""
@@ -127,8 +135,22 @@ class CodexBackend:
                 raise CodexBackendError("Codex 调用未生成结构化输出文件")
 
             raw_output = output_path.read_text(encoding="utf-8").strip()
+            if not raw_output and stdout:
+                logger.warning(
+                    "Codex output file is empty; falling back to stdout. stdout=%s stderr=%s",
+                    _snippet(stdout),
+                    _snippet(stderr),
+                )
+                raw_output = stdout
+
             if not raw_output:
-                raise CodexBackendError("Codex 返回了空响应")
+                detail_parts: List[str] = []
+                if stderr:
+                    detail_parts.append(f"stderr={_snippet(stderr)}")
+                if stdout:
+                    detail_parts.append(f"stdout={_snippet(stdout)}")
+                detail = f"（{'；'.join(detail_parts)}）" if detail_parts else ""
+                raise CodexBackendError(f"Codex 返回了空响应{detail}")
 
             try:
                 payload = json.loads(raw_output)
