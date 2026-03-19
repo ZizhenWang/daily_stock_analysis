@@ -20,4 +20,12 @@ esac
 mkdir -p "$effective_codex_home"
 export CODEX_HOME="$effective_codex_home"
 
+if [ "${codex_auth_mode}" = "api" ] && [ ! -f "$CODEX_HOME/auth.json" ]; then
+  codex_api_key="${CODEX_OPENAI_API_KEY:-${OPENAI_API_KEY:-}}"
+  if [ -n "$codex_api_key" ] && command -v codex >/dev/null 2>&1; then
+    echo "[docker-entrypoint] Initializing Codex API-key login under $CODEX_HOME" >&2
+    printf '%s' "$codex_api_key" | codex login --with-api-key >/dev/null
+  fi
+fi
+
 exec "$@"

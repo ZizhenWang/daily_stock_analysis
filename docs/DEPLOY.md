@@ -116,7 +116,7 @@ sudo docker-compose -f ./docker/docker-compose.yml run --rm server codex login -
 说明：
 - Docker / NAS 模式下，分析链路中的 `codex exec` 会优先复用挂载的 `CODEX_HOME`
 - 因此 `codex-home/` 目录必须和 `docker-compose.yml` 的卷挂载保持一致，并且登录动作需要在同一套 compose 配置下完成
-- 若使用 `codex login` 的 API key 模式，也推荐继续在当前 compose 环境中完成登录；仓库现会在每次调用前完整复用挂载的 `CODEX_HOME`，以兼容账号登录和 API key 登录两种状态文件结构
+- 若使用 API key 模式，Codex CLI 官方支持 `codex login --with-api-key`；当前 Docker 入口会在 `CODEX_AUTH_MODE=api` 且存在 `CODEX_OPENAI_API_KEY`（未设置时回退 `OPENAI_API_KEY`）时自动完成一次 API 登录，并继续在每次调用前完整复用挂载的 `CODEX_HOME`
 - 如需同时保留“账号登录”和“API key 登录”，可在 `.env` 中设置 `CODEX_AUTH_MODE=account|api|shared`：
   - `shared`：直接使用 `/codex-home`（默认，兼容旧部署）
   - `account`：使用 `/codex-home/account`
@@ -161,6 +161,7 @@ EOF
 
 ```env
 CODEX_AUTH_MODE=api
+CODEX_OPENAI_API_KEY=sk-...
 ```
 
 如果要切回账号登录，则把 `CODEX_AUTH_MODE=account`，并在对应目录里执行一次：
