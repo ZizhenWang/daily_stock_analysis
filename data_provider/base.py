@@ -662,6 +662,7 @@ class DataFetcherManager:
           4. YfinanceFetcher (Priority 4)
         """
         from .efinance_fetcher import EfinanceFetcher
+        from .futu_fetcher import FutuFetcher
         from .akshare_fetcher import AkshareFetcher
         from .tushare_fetcher import TushareFetcher
         from .pytdx_fetcher import PytdxFetcher
@@ -669,6 +670,7 @@ class DataFetcherManager:
         from .yfinance_fetcher import YfinanceFetcher
         # 创建所有数据源实例（优先级在各 Fetcher 的 __init__ 中确定）
         efinance = EfinanceFetcher()
+        futu = FutuFetcher()
         akshare = AkshareFetcher()
         tushare = TushareFetcher()  # 默认作为 fallback，可通过 TUSHARE_PRIORITY 调整
         pytdx = PytdxFetcher()      # 通达信数据源（可配 PYTDX_HOST/PYTDX_PORT）
@@ -676,14 +678,16 @@ class DataFetcherManager:
         yfinance = YfinanceFetcher()
 
         # 初始化数据源列表
-        self._fetchers = [
-            efinance,
+        self._fetchers = [efinance]
+        if getattr(futu, "enabled", False):
+            self._fetchers.append(futu)
+        self._fetchers.extend([
             akshare,
             tushare,
             pytdx,
             baostock,
             yfinance,
-        ]
+        ])
 
         # 按优先级排序（Tushare 默认作为 fallback）
         self._fetchers.sort(key=lambda f: f.priority)
@@ -735,38 +739,70 @@ class DataFetcherManager:
         total_fetchers = len(self._fetchers)
         request_start = time.time()
 
-        # 快速路径：美股指数与美股股票直接路由到 YfinanceFetcher
-        if is_us_index_code(stock_code) or is_us_stock_code(stock_code):
+        # 快速路径：美股指数直接路由到 YfinanceFetcher
+        if is_us_index_code(stock_code):
             for attempt, fetcher in enumerate(self._fetchers, start=1):
-                if fetcher.name == "YfinanceFetcher":
-                    try:
+                if fetcher.name != "YfinanceFetcher":
+                    continue
+                try:
+                    logger.info(
+                        f"[数据源尝试 {attempt}/{total_fetchers}] [{fetcher.name}] "
+                        f"美股指数 {stock_code} 直接路由..."
+                    )
+                    df = fetcher.get_daily_data(
+                        stock_code=stock_code,
+                        start_date=start_date,
+                        end_date=end_date,
+                        days=days,
+                    )
+                    if df is not None and not df.empty:
+                        elapsed = time.time() - request_start
                         logger.info(
-                            f"[数据源尝试 {attempt}/{total_fetchers}] [{fetcher.name}] "
-                            f"美股/美股指数 {stock_code} 直接路由..."
+                            f"[数据源完成] {stock_code} 使用 [{fetcher.name}] 获取成功: "
+                            f"rows={len(df)}, elapsed={elapsed:.2f}s"
                         )
-                        df = fetcher.get_daily_data(
-                            stock_code=stock_code,
-                            start_date=start_date,
-                            end_date=end_date,
-                            days=days,
-                        )
-                        if df is not None and not df.empty:
-                            elapsed = time.time() - request_start
-                            logger.info(
-                                f"[数据源完成] {stock_code} 使用 [{fetcher.name}] 获取成功: "
-                                f"rows={len(df)}, elapsed={elapsed:.2f}s"
-                            )
-                            return df, fetcher.name
-                    except Exception as e:
-                        error_type, error_reason = summarize_exception(e)
-                        error_msg = f"[{fetcher.name}] ({error_type}) {error_reason}"
-                        logger.warning(
-                            f"[数据源失败 {attempt}/{total_fetchers}] [{fetcher.name}] {stock_code}: "
-                            f"error_type={error_type}, reason={error_reason}"
-                        )
-                        errors.append(error_msg)
+                        return df, fetcher.name
+                except Exception as e:
+                    error_type, error_reason = summarize_exception(e)
+                    errors.append(f"[{fetcher.name}] {error_type}: {error_reason}")
+                    logger.warning(
+                        f"[数据源失败] {stock_code} [{fetcher.name}] "
+                        f"error_type={error_type}, reason={error_reason}"
+                    )
                     break
-            # YfinanceFetcher failed or not found
+
+        # 快速路径：美股股票优先尝试 Futu，其次 Yfinance
+        if is_us_stock_code(stock_code):
+            for attempt, fetcher in enumerate(self._fetchers, start=1):
+                if fetcher.name not in ("FutuFetcher", "YfinanceFetcher"):
+                    continue
+                try:
+                    logger.info(
+                        f"[数据源尝试 {attempt}/{total_fetchers}] [{fetcher.name}] "
+                        f"美股 {stock_code} 直接路由..."
+                    )
+                    df = fetcher.get_daily_data(
+                        stock_code=stock_code,
+                        start_date=start_date,
+                        end_date=end_date,
+                        days=days,
+                    )
+                    if df is not None and not df.empty:
+                        elapsed = time.time() - request_start
+                        logger.info(
+                            f"[数据源完成] {stock_code} 使用 [{fetcher.name}] 获取成功: "
+                            f"rows={len(df)}, elapsed={elapsed:.2f}s"
+                        )
+                        return df, fetcher.name
+                except Exception as e:
+                    error_type, error_reason = summarize_exception(e)
+                    errors.append(f"[{fetcher.name}] {error_type}: {error_reason}")
+                    logger.warning(
+                        f"[数据源失败] {stock_code} [{fetcher.name}] "
+                        f"error_type={error_type}, reason={error_reason}"
+                    )
+
+        if is_us_index_code(stock_code) or is_us_stock_code(stock_code):
             error_summary = f"美股/美股指数 {stock_code} 获取失败:\n" + "\n".join(errors)
             elapsed = time.time() - request_start
             logger.error(f"[数据源终止] {stock_code} 获取失败: elapsed={elapsed:.2f}s\n{error_summary}")
@@ -945,19 +981,21 @@ class DataFetcherManager:
             logger.warning(f"[实时行情] 美股指数 {stock_code} 无可用数据源")
             return None
 
-        # 美股单独处理，使用 YfinanceFetcher
+        # 美股单独处理，优先使用 FutuFetcher，其次 YfinanceFetcher
         if _is_us_code(stock_code):
             for fetcher in self._fetchers:
-                if fetcher.name == "YfinanceFetcher":
-                    if hasattr(fetcher, 'get_realtime_quote'):
-                        try:
-                            quote = fetcher.get_realtime_quote(stock_code)
-                            if quote is not None:
-                                logger.info(f"[实时行情] 美股 {stock_code} 成功获取 (来源: yfinance)")
-                                return quote
-                        except Exception as e:
-                            logger.warning(f"[实时行情] 美股 {stock_code} 获取失败: {e}")
-                    break
+                if fetcher.name not in ("FutuFetcher", "YfinanceFetcher"):
+                    continue
+                if hasattr(fetcher, 'get_realtime_quote'):
+                    try:
+                        quote = fetcher.get_realtime_quote(stock_code)
+                        if quote is not None:
+                            logger.info(
+                                f"[实时行情] 美股 {stock_code} 成功获取 (来源: {getattr(quote.source, 'value', fetcher.name)})"
+                            )
+                            return quote
+                    except Exception as e:
+                        logger.warning(f"[实时行情] 美股 {stock_code} 获取失败 [{fetcher.name}]: {e}")
             logger.warning(f"[实时行情] 美股 {stock_code} 无可用数据源")
             return None
         
@@ -1011,6 +1049,13 @@ class DataFetcherManager:
                     # 尝试 TushareFetcher（需要 Tushare Pro 积分）
                     for fetcher in self._fetchers:
                         if fetcher.name == "TushareFetcher":
+                            if hasattr(fetcher, 'get_realtime_quote'):
+                                quote = fetcher.get_realtime_quote(stock_code)
+                            break
+
+                elif source == "futu":
+                    for fetcher in self._fetchers:
+                        if fetcher.name == "FutuFetcher":
                             if hasattr(fetcher, 'get_realtime_quote'):
                                 quote = fetcher.get_realtime_quote(stock_code)
                             break

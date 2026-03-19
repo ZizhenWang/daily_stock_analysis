@@ -53,10 +53,10 @@
 | 类型 | 支持 |
 |------|------|
 | AI 模型 | [AIHubMix](https://aihubmix.com/?aff=CfMq)、Gemini、OpenAI 兼容、DeepSeek、通义千问、Claude 等（统一通过 [LiteLLM](https://github.com/BerriAI/litellm) 调用，支持多 Key 负载均衡）|
-| 行情数据 | AkShare、Tushare、Pytdx、Baostock、YFinance |
+| 行情数据 | AkShare、Tushare、Pytdx、Baostock、YFinance、Futu OpenAPI（通过 OpenD） |
 | 新闻搜索 | Tavily、SerpAPI、Bocha、Brave、MiniMax |
 
-> 注：美股历史数据与实时行情统一使用 YFinance，确保复权一致性
+> 注：如启用 `FUTU_ENABLED=true`，美股个股历史/实时行情会优先尝试 Futu，再回退到 YFinance；美股指数仍默认使用 YFinance。
 
 ### 内置交易纪律
 
@@ -163,6 +163,7 @@
 | `BRAVE_API_KEYS` | [Brave Search](https://brave.com/search/api/) API（隐私优先，美股优化，多个key用逗号分隔） | 可选 |
 | `SEARXNG_BASE_URLS` | SearXNG 自建实例（无配额兜底，需在 settings.yml 启用 format: json） | 可选 |
 | `TUSHARE_TOKEN` | [Tushare Pro](https://tushare.pro/weborder/#/login?reg=834638 ) Token（默认作为中国市场 fallback 数据源，不再自动抢最高优先级） | 可选 |
+| `FUTU_ENABLED` / `FUTU_HOST` / `FUTU_PORT` | 富途 OpenAPI / OpenD 行情数据源（优先补强港股/美股；需本地或局域网 OpenD 服务） | 可选 |
 | `PREFETCH_REALTIME_QUOTES` | 实时行情预取开关：设为 `false` 可禁用全市场预取（默认 `true`） | 可选 |
 | `WECHAT_MSG_TYPE` | 企微消息类型，默认 markdown，支持配置 text 类型，发送纯 markdown 文本 | 可选 |
 | `NEWS_MAX_AGE_DAYS` | 新闻最大时效（天），默认 3，避免使用过时信息 | 可选 |
@@ -178,6 +179,11 @@
 | `FUNDAMENTAL_FETCH_TIMEOUT_SECONDS` | 单能力源调用超时（秒） | 可选 |
 | `FUNDAMENTAL_RETRY_MAX` | 基本面能力重试次数（包含首次） | 可选 |
 | `FUNDAMENTAL_CACHE_TTL_SECONDS` | 基本面缓存 TTL（秒） | 可选 |
+
+> 富途 OpenAPI 当前第一期仅接入**拉取型行情能力**：
+> - 历史 K 线
+> - 实时快照 / 实时报价
+> 不包含交易接口，也不包含新闻资讯接口或订阅推送流。若启用富途，请先确保 OpenD 已运行且容器/主机可访问 `FUTU_HOST:FUTU_PORT`。
 | `FUNDAMENTAL_CACHE_MAX_ENTRIES` | 基本面缓存最大条目数（避免长时间运行内存增长） | 可选 |
 
 > 基本面超时语义（P0）：
@@ -416,7 +422,7 @@ LITELLM_MODEL=openai/deepseek-chat
 > ```bash
 > docker-compose -f ./docker/docker-compose.yml run --rm server codex login --device-auth
 > ```
-> 登录完成后，`server` 与 `analyzer` 容器会共享 `CODEX_HOME=/codex-home` 中的登录态。
+> 登录完成后，`server` 与 `analyzer` 容器会共享 `CODEX_HOME=/codex-home` 中的登录态。若你改成 `codex login` 的 API key 模式，也建议继续在同一套 compose 环境中完成登录；当前仓库会在每次调用前完整复用挂载的 `CODEX_HOME`，而不是只复制少量认证文件。
 > 群晖 NAS 的完整落地步骤、代码同步命令和常见问题，现已并入 [`docs/DEPLOY.md`](/Users/zizhen/Documents/repos/codex/daily_stock_analysis/docs/DEPLOY.md) 的前部章节。
 
 ## 🗺️ Roadmap

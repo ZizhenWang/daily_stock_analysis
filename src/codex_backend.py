@@ -151,7 +151,7 @@ class CodexBackend:
 
     @staticmethod
     def _prepare_codex_home(target_dir: Path) -> None:
-        """Seed a writable CODEX_HOME with auth/config files when they exist."""
+        """Seed a writable CODEX_HOME from an existing mounted/login-ready home."""
         source_dirs: List[Path] = []
 
         # Prefer an explicit CODEX_HOME mount (used by Docker/NAS deployments),
@@ -161,15 +161,22 @@ class CodexBackend:
             source_dirs.append(Path(env_codex_home))
         source_dirs.append(Path.home() / ".codex")
 
-        copied = set()
         for source_dir in source_dirs:
-            for name in ("auth.json", "config.toml"):
-                if name in copied:
-                    continue
-                source_path = source_dir / name
-                if source_path.exists():
-                    shutil.copy2(source_path, target_dir / name)
-                    copied.add(name)
+            if not source_dir.exists() or not source_dir.is_dir():
+                continue
+
+            copied_any = False
+            for child in source_dir.iterdir():
+                target_path = target_dir / child.name
+                if child.is_dir():
+                    shutil.copytree(child, target_path, dirs_exist_ok=True)
+                    copied_any = True
+                elif child.is_file():
+                    shutil.copy2(child, target_path)
+                    copied_any = True
+
+            if copied_any:
+                return
 
 
 def build_smoke_test_schema() -> Dict[str, Any]:

@@ -290,6 +290,13 @@ class Config:
 
     # === 数据源 API Token ===
     tushare_token: Optional[str] = None
+    futu_enabled: bool = False
+    futu_host: str = "127.0.0.1"
+    futu_port: int = 11111
+    futu_priority: int = 2
+    futu_markets: List[str] = field(default_factory=lambda: ["us", "hk"])
+    futu_realtime_enabled: bool = True
+    futu_history_enabled: bool = True
     
     # === AI 分析配置 ===
     llm_backend: str = "codex"  # codex | native
@@ -855,6 +862,17 @@ class Config:
             feishu_app_secret=os.getenv('FEISHU_APP_SECRET'),
             feishu_folder_token=os.getenv('FEISHU_FOLDER_TOKEN'),
             tushare_token=os.getenv('TUSHARE_TOKEN'),
+            futu_enabled=os.getenv('FUTU_ENABLED', 'false').lower() == 'true',
+            futu_host=os.getenv('FUTU_HOST', '127.0.0.1').strip() or '127.0.0.1',
+            futu_port=int(os.getenv('FUTU_PORT', '11111')),
+            futu_priority=int(os.getenv('FUTU_PRIORITY', '2')),
+            futu_markets=[
+                item.strip().lower()
+                for item in os.getenv('FUTU_MARKETS', 'us,hk').split(',')
+                if item.strip()
+            ] or ['us', 'hk'],
+            futu_realtime_enabled=os.getenv('FUTU_REALTIME_ENABLED', 'true').lower() == 'true',
+            futu_history_enabled=os.getenv('FUTU_HISTORY_ENABLED', 'true').lower() == 'true',
             llm_backend=(os.getenv('LLM_BACKEND', 'codex') or 'codex').strip().lower(),
             codex_model=(os.getenv('CODEX_MODEL', '') or '').strip(),
             codex_timeout_seconds=max(10, int(os.getenv('CODEX_TIMEOUT_SECONDS', '90'))),
@@ -1405,11 +1423,11 @@ class Config:
     @classmethod
     def _resolve_realtime_source_priority(cls) -> str:
         """
-        Resolve realtime source priority with automatic tushare injection.
+        Resolve realtime source priority with automatic futu / tushare injection.
 
-        When TUSHARE_TOKEN is configured but REALTIME_SOURCE_PRIORITY is not
-        explicitly set, automatically prepend 'tushare' to the default priority
-        so that the paid data source is utilized for realtime quotes as well.
+        When FUTU_ENABLED and/or TUSHARE_TOKEN are configured but
+        REALTIME_SOURCE_PRIORITY is not explicitly set, automatically prepend
+        those providers to the default priority chain.
         """
         explicit = os.getenv('REALTIME_SOURCE_PRIORITY')
         default_priority = 'tencent,akshare_sina,efinance,akshare_em'
@@ -1418,7 +1436,28 @@ class Config:
             # User explicitly set priority, respect it
             return explicit
 
+        futu_enabled = os.getenv('FUTU_ENABLED', '').strip().lower() == 'true'
         tushare_token = os.getenv('TUSHARE_TOKEN', '').strip()
+        if futu_enabled and tushare_token:
+            import logging
+            logger = logging.getLogger(__name__)
+            resolved = f'futu,tushare,{default_priority}'
+            logger.info(
+                "FUTU_ENABLED and TUSHARE_TOKEN detected, auto-injecting futu+tushare into realtime priority: %s",
+                resolved,
+            )
+            return resolved
+
+        if futu_enabled:
+            import logging
+            logger = logging.getLogger(__name__)
+            resolved = f'futu,{default_priority}'
+            logger.info(
+                "FUTU_ENABLED detected, auto-injecting futu into realtime priority: %s",
+                resolved,
+            )
+            return resolved
+
         if tushare_token:
             # Token configured but no explicit priority override
             # Prepend tushare so the paid source is tried first
