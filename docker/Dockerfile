@@ -42,9 +42,15 @@ RUN npm install -g @openai/codex
 
 # 复制依赖文件
 COPY requirements.txt .
+COPY vendor/galaxy/ /tmp/vendor/galaxy/
 
 # 安装 Python 依赖
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt \
+    && if find /tmp/vendor/galaxy -maxdepth 1 -name '*.whl' -print -quit | grep -q .; then \
+        pip install --no-cache-dir /tmp/vendor/galaxy/*.whl; \
+    else \
+        echo "No Galaxy wheels found under /tmp/vendor/galaxy, skipping AmazingData install"; \
+    fi
 
 # 复制应用代码
 COPY *.py ./

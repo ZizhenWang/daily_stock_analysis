@@ -203,6 +203,7 @@
 > - Phase 3：财务 / 业绩数据（如 `get_income`、`get_profit_express`、`get_profit_notice`）接入统一基本面上下文
 > - 当前 **不包含订阅式实时行情**，因此不会替代现有 A 股 realtime provider 链路
 > - AmazingData 属于券商私有 SDK，需先安装券商提供的 `tgw-*.whl` 与 `AmazingData-*.whl`
+> - Docker / NAS 部署时，推荐将 wheel 放入仓库的 `vendor/galaxy/` 目录，镜像构建会自动安装该目录下的所有 `.whl`
 
 > 基本面超时语义（P0）：
 > - 当前采用 `best-effort` 软超时（fail-open），超时会立即降级并继续主流程；

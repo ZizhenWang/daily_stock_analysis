@@ -300,7 +300,9 @@ PY
 
 部署前提：
 - 向银河证券获取 AmazingData SDK 安装包
-- 在运行环境中安装券商提供的 wheel，例如：
+- Docker / NAS 推荐将券商提供的 wheel 放到仓库目录 `vendor/galaxy/`
+- 镜像构建时会自动安装 `vendor/galaxy/` 下的所有 `.whl`
+- 若非 Docker 运行环境，再手动安装 wheel，例如：
 
 ```bash
 pip install /path/to/tgw-*.whl
