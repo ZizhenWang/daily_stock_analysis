@@ -14,25 +14,28 @@
 1. TushareFetcher (Priority 0) - 🔥 最高优先级（动态提升）
 2. EfinanceFetcher (Priority 0) - 同优先级
 3. AkshareFetcher (Priority 1) - 来自 akshare 库
-4. FutuFetcher (Priority 2) - 富途 OpenAPI / OpenD（可选）
-5. PytdxFetcher (Priority 2) - 来自 pytdx 库（通达信）
-6. BaostockFetcher (Priority 3) - 来自 baostock 库
-7. YfinanceFetcher (Priority 4) - 来自 yfinance 库
+4. GalaxyFetcher (Priority 0/可配) - 银河星耀数智 / AmazingData（可选）
+5. FutuFetcher (Priority 2) - 富途 OpenAPI / OpenD（可选）
+6. PytdxFetcher (Priority 2) - 来自 pytdx 库（通达信）
+7. BaostockFetcher (Priority 3) - 来自 baostock 库
+8. YfinanceFetcher (Priority 4) - 来自 yfinance 库
 
 【未配置 TUSHARE_TOKEN 时】
 1. EfinanceFetcher (Priority 0) - 最高优先级，来自 efinance 库
 2. AkshareFetcher (Priority 1) - 来自 akshare 库
-3. FutuFetcher (Priority 2) - 富途 OpenAPI / OpenD（可选）
-4. PytdxFetcher (Priority 2) - 来自 pytdx 库（通达信）
-5. TushareFetcher (Priority 2) - 来自 tushare 库（不可用）
-6. BaostockFetcher (Priority 3) - 来自 baostock 库
-7. YfinanceFetcher (Priority 4) - 来自 yfinance 库
+3. GalaxyFetcher (Priority 0/可配) - 银河星耀数智 / AmazingData（可选）
+4. FutuFetcher (Priority 2) - 富途 OpenAPI / OpenD（可选）
+5. PytdxFetcher (Priority 2) - 来自 pytdx 库（通达信）
+6. TushareFetcher (Priority 2) - 来自 tushare 库（不可用）
+7. BaostockFetcher (Priority 3) - 来自 baostock 库
+8. YfinanceFetcher (Priority 4) - 来自 yfinance 库
 
 提示：优先级数字越小越优先，同优先级按初始化顺序排列
 """
 
 from .base import BaseFetcher, DataFetcherManager
 from .efinance_fetcher import EfinanceFetcher
+from .galaxy_fetcher import GalaxyFetcher
 from .futu_fetcher import FutuFetcher
 from .akshare_fetcher import AkshareFetcher, is_hk_stock_code
 from .tushare_fetcher import TushareFetcher
@@ -45,6 +48,7 @@ __all__ = [
     'BaseFetcher',
     'DataFetcherManager',
     'EfinanceFetcher',
+    'GalaxyFetcher',
     'FutuFetcher',
     'AkshareFetcher',
     'TushareFetcher',

@@ -290,6 +290,14 @@ class Config:
 
     # === 数据源 API Token ===
     tushare_token: Optional[str] = None
+    galaxy_enabled: bool = False
+    galaxy_host: str = ""
+    galaxy_port: int = 0
+    galaxy_username: Optional[str] = None
+    galaxy_password: Optional[str] = None
+    galaxy_priority: int = 0
+    galaxy_local_path: str = "./data/galaxy"
+    galaxy_history_enabled: bool = True
     futu_enabled: bool = False
     futu_host: str = "127.0.0.1"
     futu_port: int = 11111
@@ -862,6 +870,14 @@ class Config:
             feishu_app_secret=os.getenv('FEISHU_APP_SECRET'),
             feishu_folder_token=os.getenv('FEISHU_FOLDER_TOKEN'),
             tushare_token=os.getenv('TUSHARE_TOKEN'),
+            galaxy_enabled=os.getenv('GALAXY_ENABLED', 'false').lower() == 'true',
+            galaxy_host=(os.getenv('GALAXY_HOST', '') or '').strip(),
+            galaxy_port=int(os.getenv('GALAXY_PORT', '0')),
+            galaxy_username=os.getenv('GALAXY_USERNAME'),
+            galaxy_password=os.getenv('GALAXY_PASSWORD'),
+            galaxy_priority=int(os.getenv('GALAXY_PRIORITY', '0')),
+            galaxy_local_path=(os.getenv('GALAXY_LOCAL_PATH', './data/galaxy') or './data/galaxy').strip(),
+            galaxy_history_enabled=os.getenv('GALAXY_HISTORY_ENABLED', 'true').lower() == 'true',
             futu_enabled=os.getenv('FUTU_ENABLED', 'false').lower() == 'true',
             futu_host=os.getenv('FUTU_HOST', '127.0.0.1').strip() or '127.0.0.1',
             futu_port=int(os.getenv('FUTU_PORT', '11111')),

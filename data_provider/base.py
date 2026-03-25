@@ -25,7 +25,7 @@ from typing import Callable, Optional, List, Tuple, Dict, Any
 import pandas as pd
 import numpy as np
 from src.data.stock_mapping import STOCK_NAME_MAP, is_meaningful_stock_name
-from .fundamental_adapter import AkshareFundamentalAdapter
+from .fundamental_adapter import FundamentalAdapterChain
 
 # 配置日志
 logger = logging.getLogger(__name__)
@@ -478,7 +478,7 @@ class DataFetcherManager:
         else:
             # 默认数据源将在首次使用时延迟加载
             self._init_default_fetchers()
-        self._fundamental_adapter = AkshareFundamentalAdapter()
+        self._fundamental_adapter = FundamentalAdapterChain()
         self._fundamental_cache: Dict[str, Dict[str, Any]] = {}
         self._fundamental_cache_lock = RLock()
         self._fundamental_timeout_worker_limit = 8
@@ -653,15 +653,18 @@ class DataFetcherManager:
 
         优先级动态调整逻辑：
         - 如果配置了 TUSHARE_TOKEN：Tushare 作为兜底数据源启用（默认 Priority 4，可通过 TUSHARE_PRIORITY 覆盖）
+        - 如果配置了 GALAXY_ENABLED：Galaxy 作为 A 股查询式历史/基础信息源加入链路（默认 Priority 0）
         - 否则按默认优先级：
-          0. EfinanceFetcher (Priority 0) - 最高优先级
-          1. AkshareFetcher (Priority 1)
-          2. PytdxFetcher (Priority 2) - 通达信
+          0. GalaxyFetcher (Priority 0，可选)
+          1. EfinanceFetcher (Priority 0) - 最高优先级
+          2. AkshareFetcher (Priority 1)
+          3. PytdxFetcher (Priority 2) - 通达信
           4. TushareFetcher (Priority 4, fallback)
-          3. BaostockFetcher (Priority 3)
-          4. YfinanceFetcher (Priority 4)
+          5. BaostockFetcher (Priority 3)
+          6. YfinanceFetcher (Priority 4)
         """
         from .efinance_fetcher import EfinanceFetcher
+        from .galaxy_fetcher import GalaxyFetcher
         from .futu_fetcher import FutuFetcher
         from .akshare_fetcher import AkshareFetcher
         from .tushare_fetcher import TushareFetcher
@@ -669,6 +672,7 @@ class DataFetcherManager:
         from .baostock_fetcher import BaostockFetcher
         from .yfinance_fetcher import YfinanceFetcher
         # 创建所有数据源实例（优先级在各 Fetcher 的 __init__ 中确定）
+        galaxy = GalaxyFetcher()
         efinance = EfinanceFetcher()
         futu = FutuFetcher()
         akshare = AkshareFetcher()
@@ -678,7 +682,10 @@ class DataFetcherManager:
         yfinance = YfinanceFetcher()
 
         # 初始化数据源列表
-        self._fetchers = [efinance]
+        self._fetchers = []
+        if getattr(galaxy, "enabled", False):
+            self._fetchers.append(galaxy)
+        self._fetchers.append(efinance)
         if getattr(futu, "enabled", False):
             self._fetchers.append(futu)
         self._fetchers.extend([

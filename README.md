@@ -168,6 +168,7 @@
 | `BRAVE_API_KEYS` | [Brave Search](https://brave.com/search/api/) API（隐私优先，美股优化，多个key用逗号分隔） | 可选 |
 | `SEARXNG_BASE_URLS` | SearXNG 自建实例（无配额兜底，需在 settings.yml 启用 format: json） | 可选 |
 | `TUSHARE_TOKEN` | [Tushare Pro](https://tushare.pro/weborder/#/login?reg=834638 ) Token（默认作为中国市场 fallback 数据源，不再自动抢最高优先级） | 可选 |
+| `GALAXY_ENABLED` / `GALAXY_HOST` / `GALAXY_PORT` / `GALAXY_USERNAME` / `GALAXY_PASSWORD` | 银河证券星耀数智 / AmazingData（启用后可作为 A 股查询式历史行情与财务/业绩数据源；需券商提供 SDK wheel） | 可选 |
 | `FUTU_ENABLED` / `FUTU_HOST` / `FUTU_PORT` | 富途 OpenAPI / OpenD 行情数据源（启用后港股优先走 Futu，亦可补强美股；需本地或局域网 OpenD 服务） | 可选 |
 | `PREFETCH_REALTIME_QUOTES` | 实时行情预取开关：设为 `false` 可禁用全市场预取（默认 `true`） | 可选 |
 | `WECHAT_MSG_TYPE` | 企微消息类型，默认 markdown，支持配置 text 类型，发送纯 markdown 文本 | 可选 |
@@ -184,6 +185,7 @@
 | `FUNDAMENTAL_FETCH_TIMEOUT_SECONDS` | 单能力源调用超时（秒） | 可选 |
 | `FUNDAMENTAL_RETRY_MAX` | 基本面能力重试次数（包含首次） | 可选 |
 | `FUNDAMENTAL_CACHE_TTL_SECONDS` | 基本面缓存 TTL（秒） | 可选 |
+| `FUNDAMENTAL_CACHE_MAX_ENTRIES` | 基本面缓存最大条目数（避免长时间运行内存增长） | 可选 |
 
 > 富途 OpenAPI 当前第一期仅接入**拉取型行情能力**：
 > - 历史 K 线
@@ -195,7 +197,12 @@
 > - `OpenD` 作为独立服务运行（推荐单独容器或宿主机常驻服务）
 > - 若 DSA 与 OpenD 部署在同一台 NAS 的不同容器中，`FUTU_HOST` 应填写 **NAS 局域网 IP**，不要写 `127.0.0.1`
 > - 富途实际可用市场请以 OpenD 启动日志和 `OpenQuoteContext` 实测结果为准，不同账号可能只开放港股、或仅开放部分市场
-| `FUNDAMENTAL_CACHE_MAX_ENTRIES` | 基本面缓存最大条目数（避免长时间运行内存增长） | 可选 |
+>
+> 银河星耀数智 / AmazingData 当前接入的是 **Phase 1 + Phase 3 查询式能力**：
+> - Phase 1：A 股历史日线 `query_kline`、股票基础信息 `get_stock_basic`、交易日历 `get_calendar`
+> - Phase 3：财务 / 业绩数据（如 `get_income`、`get_profit_express`、`get_profit_notice`）接入统一基本面上下文
+> - 当前 **不包含订阅式实时行情**，因此不会替代现有 A 股 realtime provider 链路
+> - AmazingData 属于券商私有 SDK，需先安装券商提供的 `tgw-*.whl` 与 `AmazingData-*.whl`
 
 > 基本面超时语义（P0）：
 > - 当前采用 `best-effort` 软超时（fail-open），超时会立即降级并继续主流程；

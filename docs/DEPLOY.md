@@ -289,6 +289,41 @@ ctx.close()
 PY
 ```
 
+### 银河证券星耀数智 / AmazingData（A 股查询式）
+
+当前仓库已接入 AmazingData 的：
+- Phase 1：历史日线 `query_kline`、股票基础信息 `get_stock_basic`、交易日历 `get_calendar`
+- Phase 3：财务 / 业绩数据接入统一基本面上下文
+
+当前未接入：
+- 订阅式实时行情 `SubscribeData`
+
+部署前提：
+- 向银河证券获取 AmazingData SDK 安装包
+- 在运行环境中安装券商提供的 wheel，例如：
+
+```bash
+pip install /path/to/tgw-*.whl
+pip install /path/to/AmazingData-*.whl
+```
+
+`.env` 示例：
+
+```env
+GALAXY_ENABLED=true
+GALAXY_HOST=your-galaxy-host
+GALAXY_PORT=your-galaxy-port
+GALAXY_USERNAME=your-galaxy-username
+GALAXY_PASSWORD=your-galaxy-password
+GALAXY_PRIORITY=0
+GALAXY_LOCAL_PATH=/app/data/galaxy
+GALAXY_HISTORY_ENABLED=true
+```
+
+补充说明：
+- `GALAXY_LOCAL_PATH` 用于 SDK 本地缓存，建议挂载到持久化目录
+- 目前不会替代现有 A 股 realtime provider 链路；实时仍走仓库现有渠道
+
 ### 8. 更新代码
 
 日常更新（推荐，不带 `--no-cache`）：
