@@ -3,6 +3,8 @@
 # ===================================
 # 多阶段构建：前端打包 + 后端运行
 
+ARG PYTHON_RUNTIME_IMAGE=registry.access.redhat.com/ubi9/python-311:latest
+
 FROM node:20-slim AS web-builder
 
 WORKDIR /app/apps/dsa-web
@@ -13,7 +15,6 @@ RUN npm ci
 COPY apps/dsa-web/ ./
 RUN npm run build
 
-ARG PYTHON_RUNTIME_IMAGE=registry.access.redhat.com/ubi9/python-311:latest
 FROM ${PYTHON_RUNTIME_IMAGE}
 
 # 设置工作目录
