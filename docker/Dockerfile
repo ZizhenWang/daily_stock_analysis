@@ -20,6 +20,9 @@ FROM ${PYTHON_RUNTIME_IMAGE}
 # 设置工作目录
 WORKDIR /app
 
+# UBI Python 镜像默认使用非 root 用户；切到 root 以便安装系统包、设置时区和创建运行目录。
+USER 0
+
 # 设置时区为上海
 ENV TZ=Asia/Shanghai
 RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
