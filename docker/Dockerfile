@@ -50,7 +50,6 @@ RUN set -eux; \
             gcc \
             gcc-c++ \
             make \
-            curl \
             nodejs \
             npm \
             util-linux \
@@ -60,6 +59,7 @@ RUN set -eux; \
             libXext \
             shadow-utils \
             findutils; \
+        if ! command -v curl >/dev/null 2>&1; then microdnf install -y curl-minimal; fi; \
         microdnf install -y wkhtmltopdf || echo "wkhtmltopdf not available in current RPM repos; markdown-to-image may be limited"; \
         microdnf clean all; \
     elif command -v dnf >/dev/null 2>&1; then \
@@ -67,7 +67,6 @@ RUN set -eux; \
             gcc \
             gcc-c++ \
             make \
-            curl \
             nodejs \
             npm \
             util-linux \
@@ -77,6 +76,7 @@ RUN set -eux; \
             libXext \
             shadow-utils \
             findutils; \
+        if ! command -v curl >/dev/null 2>&1; then dnf install -y curl-minimal; fi; \
         dnf install -y wkhtmltopdf || echo "wkhtmltopdf not available in current RPM repos; markdown-to-image may be limited"; \
         dnf clean all; \
     else \
