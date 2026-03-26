@@ -29,7 +29,7 @@ RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 
 # 安装系统依赖（wkhtmltopdf 含 wkhtmltoimage，用于 Markdown 转图片 Issue #289）
 # 运行阶段额外安装 nodejs/npm，以便容器内可用 Codex CLI。
-# 兼容 Debian/Ubuntu（apt）与 RedHat/UBI（microdnf/dnf）两类基础镜像。
+# 兼容 Debian/Ubuntu（apt）与 RedHat/UBI（yum/microdnf/dnf）三类基础镜像。
 RUN set -eux; \
     if command -v apt-get >/dev/null 2>&1; then \
         apt-get update; \
@@ -45,6 +45,21 @@ RUN set -eux; \
             libxrender1 \
             libxext6; \
         rm -rf /var/lib/apt/lists/*; \
+    elif command -v yum >/dev/null 2>&1; then \
+        yum install -y \
+            gcc \
+            gcc-c++ \
+            make \
+            util-linux \
+            fontconfig \
+            libjpeg-turbo \
+            libXrender \
+            libXext \
+            shadow-utils \
+            findutils; \
+        if ! command -v curl >/dev/null 2>&1; then yum install -y curl; fi; \
+        yum install -y wkhtmltopdf || echo "wkhtmltopdf not available in current RPM repos; markdown-to-image may be limited"; \
+        yum clean all; \
     elif command -v microdnf >/dev/null 2>&1; then \
         microdnf install -y \
             gcc \
@@ -85,6 +100,7 @@ RUN set -eux; \
     fi
 
 # 安装 Codex CLI，供 LLM_BACKEND=codex 的容器部署使用。
+RUN command -v npm >/dev/null 2>&1 || (echo "npm not found in runtime image"; exit 1)
 RUN npm install -g @openai/codex
 
 # 复制依赖文件

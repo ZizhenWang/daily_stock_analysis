@@ -1,0 +1,14 @@
+name: daily-stock-analysis-galaxy-probe
+version: '3.8'
+
+services:
+  galaxy-probe:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.galaxy-probe
+      args:
+        PYTHON_RUNTIME_IMAGE: ${GALAXY_PROBE_PYTHON_RUNTIME_IMAGE:-registry.access.redhat.com/ubi7/python-38:latest}
+        TGW_WHEEL_PATTERN: ${GALAXY_PROBE_TGW_WHEEL_PATTERN:-tgw-*.whl}
+        AMAZINGDATA_WHEEL_PATTERN: ${GALAXY_PROBE_AMAZINGDATA_WHEEL_PATTERN:-AmazingData-*-cp38-*.whl}
+    env_file:
+      - ../.env

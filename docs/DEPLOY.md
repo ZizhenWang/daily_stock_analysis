@@ -302,7 +302,7 @@ PY
 - 向银河证券获取 AmazingData SDK 安装包
 - Docker / NAS 推荐将券商提供的 wheel 放到仓库目录 `vendor/galaxy/`
 - 镜像构建时会自动安装 `vendor/galaxy/` 下的所有 `.whl`
-- Docker 运行时默认使用 `registry.access.redhat.com/ubi9/python-311:latest` 作为 Python 基础镜像，以贴近 AmazingData 手册中更偏 RedHat 的 Linux 推荐环境
+- 主应用 Docker 运行时默认仍使用 Python 3.11 运行镜像；若只想验证 AmazingData / `tgw` 在更接近 RedHat 7.x 的环境中的兼容性，推荐使用独立的 `docker/docker-compose.galaxy-probe.yml`
 - 若非 Docker 运行环境，再手动安装 wheel，例如：
 
 ```bash
@@ -326,7 +326,22 @@ GALAXY_HISTORY_ENABLED=true
 补充说明：
 - `GALAXY_LOCAL_PATH` 用于 SDK 本地缓存，建议挂载到持久化目录
 - 目前不会替代现有 A 股 realtime provider 链路；实时仍走仓库现有渠道
-- 如需与旧的 Debian slim 运行环境做兼容性对比，可在 Docker 构建时覆盖 `PYTHON_RUNTIME_IMAGE`
+- 如需做 SDK 最小兼容性验证，可运行：
+
+```bash
+sudo docker-compose -f ./docker/docker-compose.galaxy-probe.yml build --no-cache galaxy-probe
+sudo docker-compose -f ./docker/docker-compose.galaxy-probe.yml run -T --rm galaxy-probe
+```
+
+- `galaxy-probe` 默认使用：
+  - `GALAXY_PROBE_PYTHON_RUNTIME_IMAGE=registry.access.redhat.com/ubi7/python-38:latest`
+  - `GALAXY_PROBE_AMAZINGDATA_WHEEL_PATTERN=AmazingData-*-cp38-*.whl`
+- 如果想对照测试 3.11 wheel，可改为：
+
+```env
+GALAXY_PROBE_PYTHON_RUNTIME_IMAGE=registry.access.redhat.com/ubi9/python-311:latest
+GALAXY_PROBE_AMAZINGDATA_WHEEL_PATTERN=AmazingData-*-cp311-*.whl
+```
 
 ### 8. 更新代码
 

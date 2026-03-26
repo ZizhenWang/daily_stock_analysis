@@ -1,0 +1,44 @@
+# ===================================
+# AmazingData / tgw probe image
+# ===================================
+# 用于验证券商 SDK 在不同 Linux / Python 运行时中的最小兼容性，
+# 不承载主应用，不依赖仓库其余 Python 代码。
+
+ARG PYTHON_RUNTIME_IMAGE=registry.access.redhat.com/ubi7/python-38:latest
+FROM ${PYTHON_RUNTIME_IMAGE}
+
+WORKDIR /probe
+USER 0
+
+ARG TGW_WHEEL_PATTERN=tgw-*.whl
+ARG AMAZINGDATA_WHEEL_PATTERN=AmazingData-*-cp38-*.whl
+
+COPY vendor/galaxy/ /tmp/vendor/galaxy/
+
+RUN set -eux; \
+    if command -v apt-get >/dev/null 2>&1; then \
+        apt-get update; \
+        apt-get install -y --no-install-recommends util-linux findutils; \
+        rm -rf /var/lib/apt/lists/*; \
+    elif command -v yum >/dev/null 2>&1; then \
+        yum install -y util-linux findutils; \
+        yum clean all; \
+    elif command -v microdnf >/dev/null 2>&1; then \
+        microdnf install -y util-linux findutils; \
+        microdnf clean all; \
+    elif command -v dnf >/dev/null 2>&1; then \
+        dnf install -y util-linux findutils; \
+        dnf clean all; \
+    else \
+        echo "Unsupported package manager in probe image"; \
+        exit 1; \
+    fi
+
+RUN set -eux; \
+    tgw_wheel="$(find /tmp/vendor/galaxy -maxdepth 1 -name "${TGW_WHEEL_PATTERN}" | head -n 1)"; \
+    amazingdata_wheel="$(find /tmp/vendor/galaxy -maxdepth 1 -name "${AMAZINGDATA_WHEEL_PATTERN}" | head -n 1)"; \
+    [ -n "${tgw_wheel}" ] || { echo "No tgw wheel found matching ${TGW_WHEEL_PATTERN}"; exit 1; }; \
+    [ -n "${amazingdata_wheel}" ] || { echo "No AmazingData wheel found matching ${AMAZINGDATA_WHEEL_PATTERN}"; exit 1; }; \
+    pip install --no-cache-dir "${tgw_wheel}" "${amazingdata_wheel}"
+
+CMD ["sh", "-lc", "python --version && uname -a && lscpu && python -c \"import tgw; print('tgw ok', flush=True)\" && python -c \"import AmazingData; print('AmazingData ok', flush=True)\""]
