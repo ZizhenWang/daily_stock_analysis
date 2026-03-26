@@ -168,7 +168,7 @@
 | `BRAVE_API_KEYS` | [Brave Search](https://brave.com/search/api/) API（隐私优先，美股优化，多个key用逗号分隔） | 可选 |
 | `SEARXNG_BASE_URLS` | SearXNG 自建实例（无配额兜底，需在 settings.yml 启用 format: json） | 可选 |
 | `TUSHARE_TOKEN` | [Tushare Pro](https://tushare.pro/weborder/#/login?reg=834638 ) Token（默认作为中国市场 fallback 数据源，不再自动抢最高优先级） | 可选 |
-| `GALAXY_ENABLED` / `GALAXY_HOST` / `GALAXY_PORT` / `GALAXY_USERNAME` / `GALAXY_PASSWORD` | 银河证券星耀数智 / AmazingData（启用后可作为 A 股查询式历史行情与财务/业绩数据源；需券商提供 SDK wheel） | 可选 |
+| `GALAXY_ENABLED` / `GALAXY_BRIDGE_URL` / `GALAXY_BRIDGE_TOKEN` | 银河证券星耀数智 bridge（启用后可作为 A 股查询式历史行情与财务/业绩数据源） | 可选 |
 | `FUTU_ENABLED` / `FUTU_HOST` / `FUTU_PORT` | 富途 OpenAPI / OpenD 行情数据源（启用后港股优先走 Futu，亦可补强美股；需本地或局域网 OpenD 服务） | 可选 |
 | `PREFETCH_REALTIME_QUOTES` | 实时行情预取开关：设为 `false` 可禁用全市场预取（默认 `true`） | 可选 |
 | `WECHAT_MSG_TYPE` | 企微消息类型，默认 markdown，支持配置 text 类型，发送纯 markdown 文本 | 可选 |
@@ -199,12 +199,12 @@
 > - 富途实际可用市场请以 OpenD 启动日志和 `OpenQuoteContext` 实测结果为准，不同账号可能只开放港股、或仅开放部分市场
 >
 > 银河星耀数智 / AmazingData 当前接入的是 **Phase 1 + Phase 3 查询式能力**：
-> - Phase 1：A 股历史日线 `query_kline`、股票基础信息 `get_stock_basic`、交易日历 `get_calendar`
+> - Phase 1：A 股历史日线 `query_kline`、股票基础信息 `get_stock_basic`
 > - Phase 3：财务 / 业绩数据（如 `get_income`、`get_profit_express`、`get_profit_notice`）接入统一基本面上下文
 > - 当前 **不包含订阅式实时行情**，因此不会替代现有 A 股 realtime provider 链路
-> - AmazingData 属于券商私有 SDK，需先安装券商提供的 `tgw-*.whl` 与 `AmazingData-*.whl`
-> - Docker / NAS 部署时，推荐将 wheel 放入仓库的 `vendor/galaxy/` 目录，镜像构建会自动安装该目录下的所有 `.whl`
-> - 主应用 Docker 默认仍使用 Python 3.11 运行镜像；若只想验证券商 SDK 在更接近 RedHat 7.x 的环境中的兼容性，推荐使用 `docker/docker-compose.galaxy-probe.yml`
+> - 主应用已改为 **bridge 模式**，NAS 主容器不再直接 import AmazingData / `tgw`
+> - 建议将 Galaxy bridge 部署在兼容券商 SDK 的独立环境（如阿里云 Ubuntu），NAS 通过 `GALAXY_BRIDGE_URL` 调用
+> - 若只想验证券商 SDK 在更接近 RedHat 7.x 的环境中的兼容性，推荐使用 `docker/docker-compose.galaxy-probe.yml`
 > - `galaxy-probe` 默认使用 `registry.access.redhat.com/ubi7/python-38:latest` + `AmazingData-*-cp38-*.whl`，也支持切换到其他运行镜像 / wheel 模式做对照测试
 
 > 基本面超时语义（P0）：

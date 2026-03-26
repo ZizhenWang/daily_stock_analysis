@@ -10,16 +10,14 @@ GalaxyFetcher - 星耀数智 / AmazingData 数据源
 
 注意：
 - 仅覆盖 A 股 / 北交所查询式能力，不包含订阅式实时行情
-- 依赖券商侧提供的 AmazingData / tgw SDK wheel
-- 登录参数（账号、密码、host、port）需向银河证券申请
+- 主应用通过 HTTP bridge 获取数据，不再在 NAS 主容器内直接 import AmazingData / tgw
+- bridge 服务建议部署在兼容银河 SDK 的独立环境（如阿里云 Ubuntu）
 """
 
 from __future__ import annotations
 
 import logging
 import os
-from pathlib import Path
-from threading import RLock
 from typing import Any, Dict, Optional
 
 import pandas as pd
@@ -34,6 +32,7 @@ from .base import (
     is_bse_code,
     normalize_stock_code,
 )
+from .galaxy_bridge import GalaxyBridgeClient
 
 
 logger = logging.getLogger(__name__)
@@ -45,29 +44,20 @@ class GalaxyFetcher(BaseFetcher):
     name = "GalaxyFetcher"
     priority = int(os.getenv("GALAXY_PRIORITY", "0"))
 
-    _login_lock = RLock()
-    _login_signature = None
-    _login_ready = False
-
     def __init__(self) -> None:
         self.enabled = os.getenv("GALAXY_ENABLED", "false").lower() == "true"
-        self.host = (os.getenv("GALAXY_HOST", "") or "").strip()
-        self.port = int((os.getenv("GALAXY_PORT", "0") or "0").strip() or "0")
-        self.username = (os.getenv("GALAXY_USERNAME", "") or "").strip()
-        self.password = (os.getenv("GALAXY_PASSWORD", "") or "").strip()
-        raw_local_path = (os.getenv("GALAXY_LOCAL_PATH", "./data/galaxy") or "./data/galaxy").strip()
-        self.local_path = str(Path(raw_local_path).expanduser().resolve())
+        self.bridge_url = (os.getenv("GALAXY_BRIDGE_URL", "") or "").strip()
+        self.bridge_timeout_seconds = int((os.getenv("GALAXY_BRIDGE_TIMEOUT_SECONDS", "10") or "10").strip() or "10")
         self.history_enabled = os.getenv("GALAXY_HISTORY_ENABLED", "true").lower() == "true"
-        self._calendar_cache: Optional[list[int]] = None
-        self._stock_basic_cache: Dict[str, Optional[pd.Series]] = {}
+        self._stock_basic_cache: Dict[str, Optional[Dict[str, Any]]] = {}
+        self._client: Optional[GalaxyBridgeClient] = None
 
         if self.enabled:
             logger.info(
-                "GalaxyFetcher 已启用: host=%s, port=%s, priority=%s, local_path=%s",
-                self.host,
-                self.port,
+                "GalaxyFetcher 已启用（bridge 模式）: bridge_url=%s, timeout=%ss, priority=%s",
+                self.bridge_url,
+                self.bridge_timeout_seconds,
                 self.priority,
-                self.local_path,
             )
         else:
             logger.info("GalaxyFetcher 未启用（GALAXY_ENABLED=false）")
@@ -91,55 +81,14 @@ class GalaxyFetcher(BaseFetcher):
     def _ensure_available(self) -> None:
         if not self.enabled:
             raise DataSourceUnavailableError("GalaxyFetcher 未启用，请设置 GALAXY_ENABLED=true")
-        missing = []
-        if not self.username:
-            missing.append("GALAXY_USERNAME")
-        if not self.password:
-            missing.append("GALAXY_PASSWORD")
-        if not self.host:
-            missing.append("GALAXY_HOST")
-        if not self.port:
-            missing.append("GALAXY_PORT")
-        if missing:
-            raise DataSourceUnavailableError(f"GalaxyFetcher 配置不完整: {', '.join(missing)}")
+        if not self.bridge_url:
+            raise DataSourceUnavailableError("GalaxyFetcher 配置不完整: GALAXY_BRIDGE_URL")
 
-    @staticmethod
-    def _load_sdk():
-        try:
-            import AmazingData as ad
-        except Exception as exc:  # pragma: no cover - optional dependency
-            raise DataSourceUnavailableError(
-                "未安装 AmazingData SDK，请先安装券商提供的 tgw / AmazingData wheel"
-            ) from exc
-        return ad
-
-    def _ensure_login(self):
+    def _get_client(self) -> GalaxyBridgeClient:
         self._ensure_available()
-        ad = self._load_sdk()
-        signature = (self.username, self.password, self.host, self.port)
-        with self._login_lock:
-            if self.__class__._login_ready and self.__class__._login_signature == signature:
-                return ad
-            Path(self.local_path).mkdir(parents=True, exist_ok=True)
-            ad.login(
-                username=self.username,
-                password=self.password,
-                host=self.host,
-                port=self.port,
-            )
-            self.__class__._login_signature = signature
-            self.__class__._login_ready = True
-        return ad
-
-    def _get_calendar(self) -> list[int]:
-        if self._calendar_cache:
-            return self._calendar_cache
-        ad = self._ensure_login()
-        calendar = ad.BaseData().get_calendar()
-        if not isinstance(calendar, list) or not calendar:
-            raise DataFetchError("Galaxy get_calendar 未返回有效交易日历")
-        self._calendar_cache = calendar
-        return calendar
+        if self._client is None:
+            self._client = GalaxyBridgeClient.from_env()
+        return self._client
 
     @staticmethod
     def _extract_frame(payload: Any, stock_code: str) -> Optional[pd.DataFrame]:
@@ -169,32 +118,7 @@ class GalaxyFetcher(BaseFetcher):
         return None
 
     @staticmethod
-    def _pick_latest_row(df: Optional[pd.DataFrame], stock_code: str) -> Optional[pd.Series]:
-        if df is None or df.empty:
-            return None
-        work_df = df.copy()
-        target = normalize_stock_code(stock_code)
-        code_col = next(
-            (col for col in work_df.columns if str(col) in {"MARKET_CODE", "证券代码", "股票代码", "code", "symbol"}),
-            None,
-        )
-        if code_col is not None:
-            try:
-                matched = work_df[work_df[code_col].astype(str).str.extract(r"(\d{6})", expand=False) == target]
-                if not matched.empty:
-                    work_df = matched.copy()
-            except Exception:
-                pass
-
-        for candidate in ("LISTDATE", "DELISTDATE"):
-            if candidate in work_df.columns:
-                try:
-                    work_df = work_df.sort_values(candidate)
-                except Exception:
-                    pass
-        return work_df.iloc[-1]
-
-    def _get_stock_basic_row(self, stock_code: str) -> Optional[pd.Series]:
+    def _get_stock_basic_row(self, stock_code: str) -> Optional[Dict[str, Any]]:
         normalized = normalize_stock_code(stock_code)
         if normalized in self._stock_basic_cache:
             return self._stock_basic_cache[normalized]
@@ -203,11 +127,13 @@ class GalaxyFetcher(BaseFetcher):
             self._stock_basic_cache[normalized] = None
             return None
 
-        ad = self._ensure_login()
-        info_data = ad.InfoData()
-        payload = info_data.get_stock_basic([self._to_galaxy_code(normalized)])
-        df = self._extract_frame(payload, normalized)
-        row = self._pick_latest_row(df, normalized)
+        payload = self._get_client().get_stock_basic(normalized)
+        if isinstance(payload, dict):
+            row = payload
+        elif isinstance(payload, list) and payload and isinstance(payload[0], dict):
+            row = payload[0]
+        else:
+            row = None
         self._stock_basic_cache[normalized] = row
         return row
 
@@ -218,20 +144,7 @@ class GalaxyFetcher(BaseFetcher):
         if not self._supports_code(stock_code):
             raise DataSourceUnavailableError("Galaxy 当前仅支持 A 股 / 北交所 6 位代码")
 
-        ad = self._ensure_login()
-        calendar = self._get_calendar()
-        market_data = ad.MarketData(calendar)
-        period = getattr(getattr(ad, "constant", None), "Period", None)
-        if period is None or getattr(period, "day", None) is None:
-            raise DataFetchError("AmazingData SDK 缺少 Period.day")
-        period_value = getattr(period.day, "value", period.day)
-
-        payload = market_data.query_kline(
-            [self._to_galaxy_code(stock_code)],
-            begin_date=int(start_date.replace("-", "")),
-            end_date=int(end_date.replace("-", "")),
-            period=period_value,
-        )
+        payload = self._get_client().get_kline(stock_code, start_date, end_date)
         df = self._extract_frame(payload, stock_code)
         if df is None or df.empty:
             raise DataFetchError(f"Galaxy 未返回 {stock_code} 的历史 K 线数据")
@@ -286,8 +199,8 @@ class GalaxyFetcher(BaseFetcher):
             return None
         if row is None:
             return None
-        for key in ("SECURITY_NAME", "COMP_NAME", "COMP_NAME_ENG"):
-            value = row.get(key)
+        for key in ("name", "SECURITY_NAME", "COMP_NAME", "COMP_NAME_ENG"):
+            value = row.get(key) if isinstance(row, dict) else None
             if value is not None and str(value).strip():
                 return str(value).strip()
         return None
@@ -302,7 +215,18 @@ class GalaxyFetcher(BaseFetcher):
             return []
         if row is None:
             return []
-        board = row.get("LISTPLATE_NAME")
-        if board is None or not str(board).strip():
-            return []
-        return [{"name": str(board).strip(), "type": "list_plate"}]
+        if isinstance(row, dict):
+            boards = row.get("belong_boards")
+            if isinstance(boards, list) and boards:
+                normalized_boards = []
+                for item in boards:
+                    if isinstance(item, dict) and str(item.get("name", "")).strip():
+                        normalized_boards.append(item)
+                    elif item is not None and str(item).strip():
+                        normalized_boards.append({"name": str(item).strip()})
+                if normalized_boards:
+                    return normalized_boards
+            board = row.get("board") or row.get("LISTPLATE_NAME")
+            if board is not None and str(board).strip():
+                return [{"name": str(board).strip(), "type": "list_plate"}]
+        return []

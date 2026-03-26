@@ -291,19 +291,19 @@ PY
 
 ### 银河证券星耀数智 / AmazingData（A 股查询式）
 
-当前仓库已接入 AmazingData 的：
-- Phase 1：历史日线 `query_kline`、股票基础信息 `get_stock_basic`、交易日历 `get_calendar`
+当前仓库已通过 **Galaxy bridge** 接入 AmazingData 的：
+- Phase 1：历史日线 `query_kline`、股票基础信息 `get_stock_basic`
 - Phase 3：财务 / 业绩数据接入统一基本面上下文
 
 当前未接入：
 - 订阅式实时行情 `SubscribeData`
 
 部署前提：
-- 向银河证券获取 AmazingData SDK 安装包
-- Docker / NAS 推荐将券商提供的 wheel 放到仓库目录 `vendor/galaxy/`
-- 镜像构建时会自动安装 `vendor/galaxy/` 下的所有 `.whl`
-- 主应用 Docker 运行时默认仍使用 Python 3.11 运行镜像；若只想验证 AmazingData / `tgw` 在更接近 RedHat 7.x 的环境中的兼容性，推荐使用独立的 `docker/docker-compose.galaxy-probe.yml`
-- 若非 Docker 运行环境，再手动安装 wheel，例如：
+- 在兼容银河 SDK 的独立环境（推荐阿里云 Ubuntu / 标准 Linux 服务器）部署 Galaxy bridge
+- NAS 主框架通过 HTTP 调用 bridge，不再在主容器内安装券商 wheel
+- 若只想验证 AmazingData / `tgw` 在更接近 RedHat 7.x 的环境中的兼容性，推荐使用独立的 `docker/docker-compose.galaxy-probe.yml`
+- 若要做 SDK probe，可将券商提供的 wheel 放到仓库目录 `vendor/galaxy/`
+- bridge 侧若非 Docker 运行环境，可再手动安装 wheel，例如：
 
 ```bash
 pip install /path/to/tgw-*.whl
@@ -314,17 +314,19 @@ pip install /path/to/AmazingData-*.whl
 
 ```env
 GALAXY_ENABLED=true
-GALAXY_HOST=your-galaxy-host
-GALAXY_PORT=your-galaxy-port
-GALAXY_USERNAME=your-galaxy-username
-GALAXY_PASSWORD=your-galaxy-password
+GALAXY_BRIDGE_URL=http://your-aliyun-host:8080
+GALAXY_BRIDGE_TOKEN=your-bridge-token
+GALAXY_BRIDGE_TIMEOUT_SECONDS=10
 GALAXY_PRIORITY=0
-GALAXY_LOCAL_PATH=/app/data/galaxy
 GALAXY_HISTORY_ENABLED=true
 ```
 
 补充说明：
-- `GALAXY_LOCAL_PATH` 用于 SDK 本地缓存，建议挂载到持久化目录
+- bridge 建议至少提供以下接口：
+  - `GET /health`
+  - `GET /api/v1/galaxy/kline?code=600519&start_date=2026-01-01&end_date=2026-03-27`
+  - `GET /api/v1/galaxy/stock-basic?code=600519`
+  - `GET /api/v1/galaxy/fundamental?code=600519`
 - 目前不会替代现有 A 股 realtime provider 链路；实时仍走仓库现有渠道
 - 如需做 SDK 最小兼容性验证，可运行：
 

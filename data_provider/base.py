@@ -653,9 +653,9 @@ class DataFetcherManager:
 
         优先级动态调整逻辑：
         - 如果配置了 TUSHARE_TOKEN：Tushare 作为兜底数据源启用（默认 Priority 4，可通过 TUSHARE_PRIORITY 覆盖）
-        - 如果配置了 GALAXY_ENABLED：Galaxy 作为 A 股查询式历史/基础信息源加入链路（默认 Priority 0）
+        - 如果配置了 GALAXY_ENABLED：Galaxy bridge 作为 A 股查询式历史/基础信息源加入链路（默认 Priority 0）
         - 否则按默认优先级：
-          0. GalaxyFetcher (Priority 0，可选)
+          0. GalaxyFetcher (Priority 0，可选，bridge 模式)
           1. EfinanceFetcher (Priority 0) - 最高优先级
           2. AkshareFetcher (Priority 1)
           3. PytdxFetcher (Priority 2) - 通达信
