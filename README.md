@@ -204,6 +204,7 @@
 > - 当前 **不包含订阅式实时行情**，因此不会替代现有 A 股 realtime provider 链路
 > - AmazingData 属于券商私有 SDK，需先安装券商提供的 `tgw-*.whl` 与 `AmazingData-*.whl`
 > - Docker / NAS 部署时，推荐将 wheel 放入仓库的 `vendor/galaxy/` 目录，镜像构建会自动安装该目录下的所有 `.whl`
+> - 为了更贴近券商手册里偏 RedHat 的 Linux 推荐环境，Docker 运行镜像默认已切换为 `registry.access.redhat.com/ubi9/python-311:latest`；如需回退或对比，也可在构建时覆盖 `PYTHON_RUNTIME_IMAGE`
 
 > 基本面超时语义（P0）：
 > - 当前采用 `best-effort` 软超时（fail-open），超时会立即降级并继续主流程；

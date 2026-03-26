@@ -13,8 +13,8 @@ RUN npm ci
 COPY apps/dsa-web/ ./
 RUN npm run build
 
-# Pin to bookworm: wkhtmltopdf was removed from Debian testing (2025)
-FROM python:3.11-slim-bookworm
+ARG PYTHON_RUNTIME_IMAGE=registry.access.redhat.com/ubi9/python-311:latest
+FROM ${PYTHON_RUNTIME_IMAGE}
 
 # 设置工作目录
 WORKDIR /app
@@ -25,17 +25,60 @@ RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 
 # 安装系统依赖（wkhtmltopdf 含 wkhtmltoimage，用于 Markdown 转图片 Issue #289）
 # 运行阶段额外安装 nodejs/npm，以便容器内可用 Codex CLI。
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    gcc \
-    curl \
-    nodejs \
-    npm \
-    wkhtmltopdf \
-    fontconfig \
-    libjpeg62-turbo \
-    libxrender1 \
-    libxext6 \
-    && rm -rf /var/lib/apt/lists/*
+# 兼容 Debian/Ubuntu（apt）与 RedHat/UBI（microdnf/dnf）两类基础镜像。
+RUN set -eux; \
+    if command -v apt-get >/dev/null 2>&1; then \
+        apt-get update; \
+        apt-get install -y --no-install-recommends \
+            gcc \
+            curl \
+            nodejs \
+            npm \
+            util-linux \
+            wkhtmltopdf \
+            fontconfig \
+            libjpeg62-turbo \
+            libxrender1 \
+            libxext6; \
+        rm -rf /var/lib/apt/lists/*; \
+    elif command -v microdnf >/dev/null 2>&1; then \
+        microdnf install -y \
+            gcc \
+            gcc-c++ \
+            make \
+            curl \
+            nodejs \
+            npm \
+            util-linux \
+            fontconfig \
+            libjpeg-turbo \
+            libXrender \
+            libXext \
+            shadow-utils \
+            findutils; \
+        microdnf install -y wkhtmltopdf || echo "wkhtmltopdf not available in current RPM repos; markdown-to-image may be limited"; \
+        microdnf clean all; \
+    elif command -v dnf >/dev/null 2>&1; then \
+        dnf install -y \
+            gcc \
+            gcc-c++ \
+            make \
+            curl \
+            nodejs \
+            npm \
+            util-linux \
+            fontconfig \
+            libjpeg-turbo \
+            libXrender \
+            libXext \
+            shadow-utils \
+            findutils; \
+        dnf install -y wkhtmltopdf || echo "wkhtmltopdf not available in current RPM repos; markdown-to-image may be limited"; \
+        dnf clean all; \
+    else \
+        echo "Unsupported package manager in runtime image"; \
+        exit 1; \
+    fi
 
 # 安装 Codex CLI，供 LLM_BACKEND=codex 的容器部署使用。
 RUN npm install -g @openai/codex
