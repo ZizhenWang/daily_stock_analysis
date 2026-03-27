@@ -30,7 +30,7 @@
 ## 安装
 
 ```bash
-cd /opt/daily_stock_analysis
+cd /opt/stock-analyzer/daily_stock_analysis
 python3 -m venv .venv-galaxy-bridge
 source .venv-galaxy-bridge/bin/activate
 pip install -r bridge/galaxy/requirements.txt
@@ -92,7 +92,7 @@ curl -H "Authorization: Bearer $GALAXY_BRIDGE_TOKEN" \
 bridge 默认使用 `Bearer` token 鉴权；如果 `GALAXY_BRIDGE_TOKEN` 留空，则不启用鉴权。
 
 `GALAXY_LOCAL_PATH` 用于部分 AmazingData 类要求的本地缓存/工作目录。若不确定，保留默认 `/tmp/galaxy-bridge` 即可。
-`GALAXY_IDLE_TIMEOUT_SECONDS` 控制 bridge 的空闲回收时间。bridge 启动时不会登录 SDK，收到请求后才惰性登录；空闲超过该秒数后会尝试 `logout` 并释放 SDK 对象。
+`GALAXY_IDLE_TIMEOUT_SECONDS` 控制 bridge 的空闲回收时间。bridge 启动时不会登录 SDK，收到请求后才惰性登录；空闲超过该秒数后会释放本地 SDK 对象引用，但不会显式调用 `logout`，以避开 AmazingData 在退出路径上的兼容性问题。
 
 ## 返回格式
 
@@ -169,7 +169,7 @@ bridge 默认使用 `Bearer` token 鉴权；如果 `GALAXY_BRIDGE_TOKEN` 留空�
 
 ## systemd 部署
 
-1. 按需修改 `bridge/galaxy/systemd/galaxy-bridge.service`
+1. 默认模板已按阿里云 Ubuntu 示例对齐为 `stock` 用户和 `/opt/stock-analyzer/daily_stock_analysis` 目录；如你的机器不同，再按需修改 `bridge/galaxy/systemd/galaxy-bridge.service`
 2. 安装到系统目录：
 
 ```bash
