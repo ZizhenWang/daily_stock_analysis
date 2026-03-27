@@ -1,0 +1,17 @@
+[Unit]
+Description=Galaxy AmazingData Bridge
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/opt/daily_stock_analysis
+EnvironmentFile=/opt/daily_stock_analysis/bridge/galaxy/.env
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/bin/bash -lc '/opt/daily_stock_analysis/.venv-galaxy-bridge/bin/uvicorn bridge.galaxy.app:app --host "$GALAXY_BRIDGE_HOST" --port "$GALAXY_BRIDGE_PORT"'
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

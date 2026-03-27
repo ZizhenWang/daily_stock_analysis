@@ -295,6 +295,11 @@ PY
 - Phase 1：历史日线 `query_kline`、股票基础信息 `get_stock_basic`
 - Phase 3：财务 / 业绩数据接入统一基本面上下文
 
+仓库内已提供独立 bridge 服务脚手架：
+- [bridge/galaxy/README.md](/Users/zizhen/Documents/repos/codex/daily_stock_analysis/bridge/galaxy/README.md)
+- [bridge/galaxy/app.py](/Users/zizhen/Documents/repos/codex/daily_stock_analysis/bridge/galaxy/app.py)
+- [bridge/galaxy/sdk_client.py](/Users/zizhen/Documents/repos/codex/daily_stock_analysis/bridge/galaxy/sdk_client.py)
+
 当前未接入：
 - 订阅式实时行情 `SubscribeData`
 
@@ -327,6 +332,7 @@ GALAXY_HISTORY_ENABLED=true
   - `GET /api/v1/galaxy/kline?code=600519&start_date=2026-01-01&end_date=2026-03-27`
   - `GET /api/v1/galaxy/stock-basic?code=600519`
   - `GET /api/v1/galaxy/fundamental?code=600519`
+- 如果直接使用仓库内脚手架，阿里云 Ubuntu 上的最小命令可以参考 [bridge/galaxy/README.md](/Users/zizhen/Documents/repos/codex/daily_stock_analysis/bridge/galaxy/README.md)
 - 目前不会替代现有 A 股 realtime provider 链路；实时仍走仓库现有渠道
 - 如需做 SDK 最小兼容性验证，可运行：
 

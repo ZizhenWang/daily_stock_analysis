@@ -204,6 +204,7 @@
 > - 当前 **不包含订阅式实时行情**，因此不会替代现有 A 股 realtime provider 链路
 > - 主应用已改为 **bridge 模式**，NAS 主容器不再直接 import AmazingData / `tgw`
 > - 建议将 Galaxy bridge 部署在兼容券商 SDK 的独立环境（如阿里云 Ubuntu），NAS 通过 `GALAXY_BRIDGE_URL` 调用
+> - 仓库内已提供独立 bridge 脚手架，见 [bridge/galaxy/README.md](/Users/zizhen/Documents/repos/codex/daily_stock_analysis/bridge/galaxy/README.md)
 > - 若只想验证券商 SDK 在更接近 RedHat 7.x 的环境中的兼容性，推荐使用 `docker/docker-compose.galaxy-probe.yml`
 > - `galaxy-probe` 默认使用 `registry.access.redhat.com/ubi7/python-38:latest` + `AmazingData-*-cp38-*.whl`，也支持切换到其他运行镜像 / wheel 模式做对照测试
 
