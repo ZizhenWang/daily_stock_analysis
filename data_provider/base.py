@@ -25,6 +25,7 @@ from typing import Callable, Optional, List, Tuple, Dict, Any
 import pandas as pd
 import numpy as np
 from src.data.stock_mapping import STOCK_NAME_MAP, is_meaningful_stock_name
+from .errors import DataFetchError, DataSourceUnavailableError, RateLimitError
 from .fundamental_adapter import FundamentalAdapterChain
 
 # 配置日志
@@ -200,21 +201,6 @@ def canonical_stock_code(code: str) -> str:
         'hk00700' -> 'HK00700'
     """
     return (code or "").strip().upper()
-
-
-class DataFetchError(Exception):
-    """数据获取异常基类"""
-    pass
-
-
-class RateLimitError(DataFetchError):
-    """API 速率限制异常"""
-    pass
-
-
-class DataSourceUnavailableError(DataFetchError):
-    """数据源不可用异常"""
-    pass
 
 
 class BaseFetcher(ABC):

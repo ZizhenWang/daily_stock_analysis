@@ -14,7 +14,7 @@ from typing import Any, Dict, Optional
 
 import requests
 
-from .base import DataFetchError, DataSourceUnavailableError
+from .errors import DataFetchError, DataSourceUnavailableError
 
 
 logger = logging.getLogger(__name__)
