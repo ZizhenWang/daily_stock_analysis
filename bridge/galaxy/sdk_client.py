@@ -242,6 +242,58 @@ class GalaxySdkClient:
                 self.settings.galaxy_port,
             )
 
+    def _reset_login_state(self) -> None:
+        with self._lock:
+            self._market_data = None
+            self._info_data = None
+            self._logged_in = False
+            self._last_activity_ts = None
+
+    @staticmethod
+    def _is_relogin_candidate(exc: Exception) -> bool:
+        text = str(exc or "").strip().lower()
+        if not text:
+            return False
+        keywords = (
+            "not login",
+            "not logged",
+            "login required",
+            "session",
+            "token",
+            "expired",
+            "disconnect",
+            "disconnected",
+            "connection reset",
+            "force logout",
+            "未登录",
+            "登录",
+            "会话",
+            "失效",
+            "断开",
+            "超时",
+        )
+        return any(keyword in text for keyword in keywords)
+
+    def _run_with_relogin(self, action: Any, action_name: str) -> Any:
+        try:
+            return action()
+        except GalaxySdkError as exc:
+            if not self._is_relogin_candidate(exc):
+                raise
+            logger.warning(
+                "Galaxy bridge SDK %s hit possible stale session, retrying once with re-login: %s",
+                action_name,
+                exc,
+            )
+            self._reset_login_state()
+            self._ensure_login()
+            try:
+                return action()
+            except Exception as retry_exc:
+                raise GalaxySdkError(
+                    "%s failed after re-login retry: %s" % (action_name, retry_exc)
+                ) from retry_exc
+
     def probe(self) -> Tuple[bool, Optional[str]]:
         return True, None
 
@@ -268,19 +320,11 @@ class GalaxySdkClient:
             if (time.time() - self._last_activity_ts) < idle_timeout:
                 return False
 
-            module = self._sdk_module
-            logout = getattr(module, "logout", None) if module is not None else None
-            if callable(logout):
-                try:
-                    logout()
-                    logger.info("Galaxy bridge SDK logout ok after idle timeout")
-                except Exception as exc:
-                    logger.warning("Galaxy bridge SDK logout failed during idle recycle: %s", exc)
-
             self._market_data = None
             self._info_data = None
             self._logged_in = False
             self._last_activity_ts = None
+            logger.info("Galaxy bridge SDK references recycled after idle timeout (without explicit logout)")
             return True
 
     @staticmethod
@@ -303,93 +347,104 @@ class GalaxySdkClient:
         raise GalaxySdkError("%s signature mismatch: %s" % (method_name, "; ".join(errors[-3:])))
 
     def get_kline(self, stock_code: str, start_date: str, end_date: str) -> List[Dict[str, Any]]:
-        self._ensure_login()
-        assert self._market_data is not None
-
         symbol = _to_galaxy_code(stock_code)
         start_variants = _date_variants(start_date)
         end_variants = _date_variants(end_date)
 
-        candidates = [
-            {"kwargs": {"code": symbol, "start_date": start_variants["iso"], "end_date": end_variants["iso"], "period": "day"}},
-            {"kwargs": {"symbol": symbol, "start_date": start_variants["iso"], "end_date": end_variants["iso"], "period": "day"}},
-            {"kwargs": {"stock_code": symbol, "start_date": start_variants["iso"], "end_date": end_variants["iso"], "period": "day"}},
-            {"kwargs": {"code_list": [symbol], "start_date": start_variants["iso"], "end_date": end_variants["iso"], "period": "day"}},
-            {"kwargs": {"code": symbol, "start_time": start_variants["ts"], "end_time": end_variants["ts"], "period": "day"}},
-            {"kwargs": {"symbol": symbol, "start_time": start_variants["ts"], "end_time": end_variants["ts"], "period": "day"}},
-            {"kwargs": {"code_list": [symbol], "start_time": start_variants["ts"], "end_time": end_variants["ts"], "period": "day"}},
-            {"kwargs": {"code": symbol, "start_date": start_variants["ymd"], "end_date": end_variants["ymd"], "period": "day"}},
-        ]
-        payload = self._invoke_candidates(self._market_data, "query_kline", candidates)
-        records = _records_from_payload(payload, stock_code=symbol)
-        if not records:
-            raise GalaxySdkError("query_kline returned empty payload for %s" % symbol)
-        self._touch()
-        return records
+        def _query() -> List[Dict[str, Any]]:
+            self._ensure_login()
+            assert self._market_data is not None
+
+            candidates = [
+                {"kwargs": {"code": symbol, "start_date": start_variants["iso"], "end_date": end_variants["iso"], "period": "day"}},
+                {"kwargs": {"symbol": symbol, "start_date": start_variants["iso"], "end_date": end_variants["iso"], "period": "day"}},
+                {"kwargs": {"stock_code": symbol, "start_date": start_variants["iso"], "end_date": end_variants["iso"], "period": "day"}},
+                {"kwargs": {"code_list": [symbol], "start_date": start_variants["iso"], "end_date": end_variants["iso"], "period": "day"}},
+                {"kwargs": {"code": symbol, "start_time": start_variants["ts"], "end_time": end_variants["ts"], "period": "day"}},
+                {"kwargs": {"symbol": symbol, "start_time": start_variants["ts"], "end_time": end_variants["ts"], "period": "day"}},
+                {"kwargs": {"code_list": [symbol], "start_time": start_variants["ts"], "end_time": end_variants["ts"], "period": "day"}},
+                {"kwargs": {"code": symbol, "start_date": start_variants["ymd"], "end_date": end_variants["ymd"], "period": "day"}},
+            ]
+            payload = self._invoke_candidates(self._market_data, "query_kline", candidates)
+            records = _records_from_payload(payload, stock_code=symbol)
+            if not records:
+                raise GalaxySdkError("query_kline returned empty payload for %s" % symbol)
+            self._touch()
+            return records
+
+        return self._run_with_relogin(_query, "query_kline")
 
     def get_stock_basic(self, stock_code: str) -> Dict[str, Any]:
-        self._ensure_login()
-        assert self._info_data is not None
-
         symbol = _to_galaxy_code(stock_code)
-        candidates = [
-            {"kwargs": {"code": symbol}},
-            {"kwargs": {"symbol": symbol}},
-            {"kwargs": {"stock_code": symbol}},
-            {"kwargs": {"code_list": [symbol]}},
-            {"kwargs": {"symbol_list": [symbol]}},
-        ]
-        payload = self._invoke_candidates(self._info_data, "get_stock_basic", candidates)
-        rows = _records_from_payload(payload, stock_code=symbol)
-        if not rows:
-            raise GalaxySdkError("get_stock_basic returned empty payload for %s" % symbol)
-        self._touch()
 
-        normalized = _normalize_code(stock_code)
-        selected = rows[0]
-        for row in rows:
-            code_value = str(
-                row.get("code")
-                or row.get("CODE")
-                or row.get("security_code")
-                or row.get("SECURITY_CODE")
-                or ""
-            ).upper()
-            if normalized and normalized in code_value:
-                selected = row
-                break
+        def _query() -> Dict[str, Any]:
+            self._ensure_login()
+            assert self._info_data is not None
 
-        board_name = _pick_by_keywords(selected, ["板块", "listplate", "market_name", "board"])
-        industry_name = _pick_by_keywords(selected, ["行业", "industry"])
-        boards = []
-        if board_name:
-            boards.append({"name": str(board_name)})
-        if industry_name and str(industry_name) != str(board_name):
-            boards.append({"name": str(industry_name)})
+            candidates = [
+                {"kwargs": {"code": symbol}},
+                {"kwargs": {"symbol": symbol}},
+                {"kwargs": {"stock_code": symbol}},
+                {"kwargs": {"code_list": [symbol]}},
+                {"kwargs": {"symbol_list": [symbol]}},
+            ]
+            payload = self._invoke_candidates(self._info_data, "get_stock_basic", candidates)
+            rows = _records_from_payload(payload, stock_code=symbol)
+            if not rows:
+                raise GalaxySdkError("get_stock_basic returned empty payload for %s" % symbol)
+            self._touch()
 
-        return {
-            "code": normalized,
-            "name": _pick_by_keywords(selected, ["证券简称", "股票简称", "security_name", "comp_name", "name"]),
-            "board": str(board_name).strip() if board_name is not None else None,
-            "belong_boards": boards,
-            "raw": selected,
-        }
+            normalized = _normalize_code(stock_code)
+            selected = rows[0]
+            for row in rows:
+                code_value = str(
+                    row.get("code")
+                    or row.get("CODE")
+                    or row.get("security_code")
+                    or row.get("SECURITY_CODE")
+                    or ""
+                ).upper()
+                if normalized and normalized in code_value:
+                    selected = row
+                    break
+
+            board_name = _pick_by_keywords(selected, ["板块", "listplate", "market_name", "board"])
+            industry_name = _pick_by_keywords(selected, ["行业", "industry"])
+            boards = []
+            if board_name:
+                boards.append({"name": str(board_name)})
+            if industry_name and str(industry_name) != str(board_name):
+                boards.append({"name": str(industry_name)})
+
+            return {
+                "code": normalized,
+                "name": _pick_by_keywords(selected, ["证券简称", "股票简称", "security_name", "comp_name", "name"]),
+                "board": str(board_name).strip() if board_name is not None else None,
+                "belong_boards": boards,
+                "raw": selected,
+            }
+
+        return self._run_with_relogin(_query, "get_stock_basic")
 
     def _query_info_rows(self, method_name: str, stock_code: str) -> List[Dict[str, Any]]:
-        self._ensure_login()
-        assert self._info_data is not None
-
         symbol = _to_galaxy_code(stock_code)
-        candidates = [
-            {"kwargs": {"code": symbol}},
-            {"kwargs": {"symbol": symbol}},
-            {"kwargs": {"stock_code": symbol}},
-            {"kwargs": {"code_list": [symbol]}},
-            {"kwargs": {"symbol_list": [symbol]}},
-        ]
-        payload = self._invoke_candidates(self._info_data, method_name, candidates)
-        self._touch()
-        return _records_from_payload(payload, stock_code=symbol)
+
+        def _query() -> List[Dict[str, Any]]:
+            self._ensure_login()
+            assert self._info_data is not None
+
+            candidates = [
+                {"kwargs": {"code": symbol}},
+                {"kwargs": {"symbol": symbol}},
+                {"kwargs": {"stock_code": symbol}},
+                {"kwargs": {"code_list": [symbol]}},
+                {"kwargs": {"symbol_list": [symbol]}},
+            ]
+            payload = self._invoke_candidates(self._info_data, method_name, candidates)
+            self._touch()
+            return _records_from_payload(payload, stock_code=symbol)
+
+        return self._run_with_relogin(_query, method_name)
 
     def get_fundamental_bundle(self, stock_code: str) -> Dict[str, Any]:
         result: Dict[str, Any] = {
