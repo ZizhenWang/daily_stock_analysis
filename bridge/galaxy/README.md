@@ -45,6 +45,7 @@ GALAXY_HOST=券商提供的 host
 GALAXY_PORT=券商提供的 port
 GALAXY_USERNAME=账号
 GALAXY_PASSWORD=密码
+GALAXY_LOCAL_PATH=/tmp/galaxy-bridge
 
 GALAXY_BRIDGE_HOST=0.0.0.0
 GALAXY_BRIDGE_PORT=8080
@@ -88,6 +89,8 @@ curl -H "Authorization: Bearer $GALAXY_BRIDGE_TOKEN" \
 - `GET /api/v1/galaxy/fundamental?code=600519`
 
 bridge 默认使用 `Bearer` token 鉴权；如果 `GALAXY_BRIDGE_TOKEN` 留空，则不启用鉴权。
+
+`GALAXY_LOCAL_PATH` 用于部分 AmazingData 类要求的本地缓存/工作目录。若不确定，保留默认 `/tmp/galaxy-bridge` 即可。
 
 ## 返回格式
 

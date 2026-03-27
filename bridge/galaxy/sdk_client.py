@@ -6,6 +6,7 @@ from __future__ import annotations
 import importlib
 import logging
 import math
+import os
 import threading
 from datetime import datetime
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
@@ -178,10 +179,28 @@ class GalaxySdkClient:
         cls = getattr(module, attr_name, None)
         if cls is None:
             raise GalaxySdkError("AmazingData missing %s" % attr_name)
-        try:
-            return cls()
-        except TypeError:
-            return cls
+
+        os.makedirs(self.settings.galaxy_local_path, exist_ok=True)
+        candidates = [
+            {"args": (), "kwargs": {}},
+            {"args": (self.settings.galaxy_local_path,), "kwargs": {}},
+            {"args": (), "kwargs": {"local_path": self.settings.galaxy_local_path}},
+            {"args": (), "kwargs": {"data_path": self.settings.galaxy_local_path}},
+            {"args": (), "kwargs": {"cache_path": self.settings.galaxy_local_path}},
+            {"args": (), "kwargs": {"base_path": self.settings.galaxy_local_path}},
+        ]
+        errors: List[str] = []
+        for candidate in candidates:
+            args = tuple(candidate.get("args", ()) or ())
+            kwargs = dict(candidate.get("kwargs", {}) or {})
+            try:
+                return cls(*args, **kwargs)
+            except TypeError as exc:
+                errors.append("TypeError(%s)" % exc)
+                continue
+            except Exception as exc:
+                raise GalaxySdkError("AmazingData %s init failed: %s" % (attr_name, exc)) from exc
+        raise GalaxySdkError("%s init signature mismatch: %s" % (attr_name, "; ".join(errors[-4:])))
 
     def _ensure_login(self) -> None:
         with self._lock:
@@ -409,4 +428,3 @@ class GalaxySdkClient:
         result["source_chain"] = list(dict.fromkeys(result["source_chain"]))
         result["errors"] = list(dict.fromkeys(result["errors"]))
         return result
-

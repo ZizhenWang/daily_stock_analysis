@@ -20,6 +20,7 @@ class BridgeSettings:
     galaxy_port: int
     galaxy_username: str
     galaxy_password: str
+    galaxy_local_path: str = "/tmp/galaxy-bridge"
     bridge_host: str = "0.0.0.0"
     bridge_port: int = 8080
     bridge_token: str = ""
@@ -33,6 +34,7 @@ class BridgeSettings:
             galaxy_port=int((os.getenv("GALAXY_PORT", "0") or "0").strip() or "0"),
             galaxy_username=(os.getenv("GALAXY_USERNAME", "") or "").strip(),
             galaxy_password=os.getenv("GALAXY_PASSWORD", "") or "",
+            galaxy_local_path=(os.getenv("GALAXY_LOCAL_PATH", "/tmp/galaxy-bridge") or "/tmp/galaxy-bridge").strip(),
             bridge_host=(os.getenv("GALAXY_BRIDGE_HOST", "0.0.0.0") or "0.0.0.0").strip(),
             bridge_port=int((os.getenv("GALAXY_BRIDGE_PORT", "8080") or "8080").strip() or "8080"),
             bridge_token=(os.getenv("GALAXY_BRIDGE_TOKEN", "") or "").strip(),
@@ -52,4 +54,3 @@ class BridgeSettings:
             missing.append("GALAXY_PASSWORD")
         if missing:
             raise RuntimeError("Missing Galaxy bridge SDK config: " + ", ".join(missing))
-
