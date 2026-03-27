@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import logging
+import threading
+import time
 from typing import Optional
 
 from fastapi import FastAPI, Header, HTTPException, Query
@@ -27,6 +29,8 @@ app = FastAPI(
     version="0.1.0",
     description="Standalone HTTP bridge for AmazingData / Galaxy broker SDK.",
 )
+_idle_monitor_stop = threading.Event()
+_idle_monitor_thread: Optional[threading.Thread] = None
 
 
 def _check_token(authorization: Optional[str]) -> None:
@@ -44,13 +48,41 @@ def root() -> dict:
 
 @app.get("/health", response_model=HealthResponse)
 def health() -> dict:
-    sdk_ready, sdk_error = sdk_client.probe()
-    return {
-        "status": "ok",
-        "service": "galaxy-bridge",
-        "sdk_ready": sdk_ready,
-        "sdk_error": sdk_error,
-    }
+    payload = sdk_client.status()
+    payload.update({"status": "ok", "service": "galaxy-bridge"})
+    return payload
+
+
+def _idle_monitor_loop() -> None:
+    idle_timeout = max(1, int(settings.galaxy_idle_timeout_seconds))
+    sleep_seconds = min(30, max(5, idle_timeout // 4))
+    while not _idle_monitor_stop.wait(sleep_seconds):
+        try:
+            sdk_client.recycle_if_idle()
+        except Exception:
+            logger.exception("Galaxy bridge idle recycle failed")
+
+
+@app.on_event("startup")
+def startup() -> None:
+    global _idle_monitor_thread
+    _idle_monitor_stop.clear()
+    _idle_monitor_thread = threading.Thread(
+        target=_idle_monitor_loop,
+        name="galaxy-idle-monitor",
+        daemon=True,
+    )
+    _idle_monitor_thread.start()
+    logger.info(
+        "Galaxy bridge started in lazy-login mode: idle_timeout=%ss",
+        settings.galaxy_idle_timeout_seconds,
+    )
+
+
+@app.on_event("shutdown")
+def shutdown() -> None:
+    _idle_monitor_stop.set()
+    sdk_client.recycle_if_idle()
 
 
 @app.get("/api/v1/galaxy/kline")
@@ -97,4 +129,3 @@ def get_fundamental_bundle(
         raise HTTPException(status_code=502, detail=str(exc))
     validated = FundamentalBundleResponse(**payload)
     return success(validated.model_dump(), status=validated.status)
-

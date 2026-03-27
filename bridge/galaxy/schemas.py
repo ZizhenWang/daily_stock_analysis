@@ -11,8 +11,11 @@ from pydantic import BaseModel, Field
 class HealthResponse(BaseModel):
     status: str = "ok"
     service: str = "galaxy-bridge"
-    sdk_ready: bool = False
+    sdk_ready: bool = True
     sdk_error: Optional[str] = None
+    sdk_logged_in: bool = False
+    last_activity_at: Optional[str] = None
+    idle_timeout_seconds: int = 300
 
 
 class BoardItem(BaseModel):
@@ -41,4 +44,3 @@ def success(payload: Any, *, status: str = "ok") -> Dict[str, Any]:
         "status": status,
         "data": payload,
     }
-

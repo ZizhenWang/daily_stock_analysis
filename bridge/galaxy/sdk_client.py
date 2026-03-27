@@ -7,6 +7,7 @@ import importlib
 import logging
 import math
 import os
+import time
 import threading
 from datetime import datetime
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
@@ -165,6 +166,7 @@ class GalaxySdkClient:
         self._market_data: Optional[Any] = None
         self._info_data: Optional[Any] = None
         self._logged_in = False
+        self._last_activity_ts: Optional[float] = None
 
     def _import_sdk(self) -> Any:
         if self._sdk_module is None:
@@ -205,6 +207,7 @@ class GalaxySdkClient:
     def _ensure_login(self) -> None:
         with self._lock:
             if self._logged_in:
+                self._touch()
                 return
             self.settings.validate_sdk_env()
             module = self._import_sdk()
@@ -232,6 +235,7 @@ class GalaxySdkClient:
             self._market_data = self._build_instance("MarketData")
             self._info_data = self._build_instance("InfoData")
             self._logged_in = True
+            self._touch()
             logger.info(
                 "Galaxy bridge SDK login ok: host=%s, port=%s",
                 self.settings.galaxy_host,
@@ -239,11 +243,45 @@ class GalaxySdkClient:
             )
 
     def probe(self) -> Tuple[bool, Optional[str]]:
-        try:
-            self._ensure_login()
-            return True, None
-        except Exception as exc:
-            return False, "%s: %s" % (type(exc).__name__, exc)
+        return True, None
+
+    def _touch(self) -> None:
+        self._last_activity_ts = time.time()
+
+    def status(self) -> Dict[str, Any]:
+        last_activity = None
+        if self._last_activity_ts is not None:
+            last_activity = datetime.fromtimestamp(self._last_activity_ts).isoformat()
+        return {
+            "sdk_ready": True,
+            "sdk_error": None,
+            "sdk_logged_in": bool(self._logged_in),
+            "last_activity_at": last_activity,
+            "idle_timeout_seconds": int(max(1, self.settings.galaxy_idle_timeout_seconds)),
+        }
+
+    def recycle_if_idle(self) -> bool:
+        with self._lock:
+            if not self._logged_in or self._last_activity_ts is None:
+                return False
+            idle_timeout = max(1, int(self.settings.galaxy_idle_timeout_seconds))
+            if (time.time() - self._last_activity_ts) < idle_timeout:
+                return False
+
+            module = self._sdk_module
+            logout = getattr(module, "logout", None) if module is not None else None
+            if callable(logout):
+                try:
+                    logout()
+                    logger.info("Galaxy bridge SDK logout ok after idle timeout")
+                except Exception as exc:
+                    logger.warning("Galaxy bridge SDK logout failed during idle recycle: %s", exc)
+
+            self._market_data = None
+            self._info_data = None
+            self._logged_in = False
+            self._last_activity_ts = None
+            return True
 
     @staticmethod
     def _invoke_candidates(target: Any, method_name: str, candidates: Iterable[Dict[str, Any]]) -> Any:
@@ -286,6 +324,7 @@ class GalaxySdkClient:
         records = _records_from_payload(payload, stock_code=symbol)
         if not records:
             raise GalaxySdkError("query_kline returned empty payload for %s" % symbol)
+        self._touch()
         return records
 
     def get_stock_basic(self, stock_code: str) -> Dict[str, Any]:
@@ -304,6 +343,7 @@ class GalaxySdkClient:
         rows = _records_from_payload(payload, stock_code=symbol)
         if not rows:
             raise GalaxySdkError("get_stock_basic returned empty payload for %s" % symbol)
+        self._touch()
 
         normalized = _normalize_code(stock_code)
         selected = rows[0]
@@ -348,6 +388,7 @@ class GalaxySdkClient:
             {"kwargs": {"symbol_list": [symbol]}},
         ]
         payload = self._invoke_candidates(self._info_data, method_name, candidates)
+        self._touch()
         return _records_from_payload(payload, stock_code=symbol)
 
     def get_fundamental_bundle(self, stock_code: str) -> Dict[str, Any]:

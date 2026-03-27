@@ -21,6 +21,7 @@ class BridgeSettings:
     galaxy_username: str
     galaxy_password: str
     galaxy_local_path: str = "/tmp/galaxy-bridge"
+    galaxy_idle_timeout_seconds: int = 300
     bridge_host: str = "0.0.0.0"
     bridge_port: int = 8080
     bridge_token: str = ""
@@ -35,6 +36,7 @@ class BridgeSettings:
             galaxy_username=(os.getenv("GALAXY_USERNAME", "") or "").strip(),
             galaxy_password=os.getenv("GALAXY_PASSWORD", "") or "",
             galaxy_local_path=(os.getenv("GALAXY_LOCAL_PATH", "/tmp/galaxy-bridge") or "/tmp/galaxy-bridge").strip(),
+            galaxy_idle_timeout_seconds=int((os.getenv("GALAXY_IDLE_TIMEOUT_SECONDS", "300") or "300").strip() or "300"),
             bridge_host=(os.getenv("GALAXY_BRIDGE_HOST", "0.0.0.0") or "0.0.0.0").strip(),
             bridge_port=int((os.getenv("GALAXY_BRIDGE_PORT", "8080") or "8080").strip() or "8080"),
             bridge_token=(os.getenv("GALAXY_BRIDGE_TOKEN", "") or "").strip(),

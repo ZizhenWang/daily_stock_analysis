@@ -46,6 +46,7 @@ GALAXY_PORT=券商提供的 port
 GALAXY_USERNAME=账号
 GALAXY_PASSWORD=密码
 GALAXY_LOCAL_PATH=/tmp/galaxy-bridge
+GALAXY_IDLE_TIMEOUT_SECONDS=300
 
 GALAXY_BRIDGE_HOST=0.0.0.0
 GALAXY_BRIDGE_PORT=8080
@@ -91,6 +92,7 @@ curl -H "Authorization: Bearer $GALAXY_BRIDGE_TOKEN" \
 bridge 默认使用 `Bearer` token 鉴权；如果 `GALAXY_BRIDGE_TOKEN` 留空，则不启用鉴权。
 
 `GALAXY_LOCAL_PATH` 用于部分 AmazingData 类要求的本地缓存/工作目录。若不确定，保留默认 `/tmp/galaxy-bridge` 即可。
+`GALAXY_IDLE_TIMEOUT_SECONDS` 控制 bridge 的空闲回收时间。bridge 启动时不会登录 SDK，收到请求后才惰性登录；空闲超过该秒数后会尝试 `logout` 并释放 SDK 对象。
 
 ## 返回格式
 
@@ -101,7 +103,10 @@ bridge 默认使用 `Bearer` token 鉴权；如果 `GALAXY_BRIDGE_TOKEN` 留空�
   "status": "ok",
   "service": "galaxy-bridge",
   "sdk_ready": true,
-  "sdk_error": null
+  "sdk_error": null,
+  "sdk_logged_in": false,
+  "last_activity_at": null,
+  "idle_timeout_seconds": 300
 }
 ```
 
