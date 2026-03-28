@@ -163,6 +163,8 @@ class GalaxySdkClient:
         self.settings = settings
         self._lock = threading.RLock()
         self._sdk_module: Optional[Any] = None
+        self._base_data: Optional[Any] = None
+        self._calendar: Optional[Any] = None
         self._market_data: Optional[Any] = None
         self._info_data: Optional[Any] = None
         self._logged_in = False
@@ -176,11 +178,56 @@ class GalaxySdkClient:
                 raise GalaxySdkError("Import AmazingData failed: %s" % exc) from exc
         return self._sdk_module
 
+    def _get_base_data(self) -> Any:
+        if self._base_data is not None:
+            return self._base_data
+        module = self._import_sdk()
+        cls = getattr(module, "BaseData", None)
+        if cls is None:
+            raise GalaxySdkError("AmazingData missing BaseData")
+        try:
+            self._base_data = cls()
+        except Exception as exc:
+            raise GalaxySdkError("AmazingData BaseData init failed: %s" % exc) from exc
+        return self._base_data
+
+    def _get_calendar(self) -> Any:
+        if self._calendar is not None:
+            return self._calendar
+        base_data = self._get_base_data()
+        getter = getattr(base_data, "get_calendar", None)
+        if getter is None:
+            raise GalaxySdkError("AmazingData BaseData.get_calendar not found")
+        try:
+            self._calendar = getter()
+        except Exception as exc:
+            raise GalaxySdkError("AmazingData get_calendar failed: %s" % exc) from exc
+        return self._calendar
+
+    def _get_day_period_value(self) -> int:
+        module = self._import_sdk()
+        constant = getattr(module, "constant", None)
+        if constant is not None:
+            period_enum = getattr(constant, "Period", None)
+            day = getattr(period_enum, "day", None) if period_enum is not None else None
+            value = getattr(day, "value", None)
+            if isinstance(value, int):
+                return value
+        return 101
+
     def _build_instance(self, attr_name: str) -> Any:
         module = self._import_sdk()
         cls = getattr(module, attr_name, None)
         if cls is None:
             raise GalaxySdkError("AmazingData missing %s" % attr_name)
+
+        if attr_name == "MarketData":
+            try:
+                return cls(self._get_calendar())
+            except TypeError:
+                pass
+            except Exception as exc:
+                raise GalaxySdkError("AmazingData %s init failed: %s" % (attr_name, exc)) from exc
 
         os.makedirs(self.settings.galaxy_local_path, exist_ok=True)
         candidates = [
@@ -244,6 +291,8 @@ class GalaxySdkClient:
 
     def _reset_login_state(self) -> None:
         with self._lock:
+            self._base_data = None
+            self._calendar = None
             self._market_data = None
             self._info_data = None
             self._logged_in = False
@@ -348,22 +397,24 @@ class GalaxySdkClient:
 
     def get_kline(self, stock_code: str, start_date: str, end_date: str) -> List[Dict[str, Any]]:
         symbol = _to_galaxy_code(stock_code)
-        start_variants = _date_variants(start_date)
-        end_variants = _date_variants(end_date)
+        begin_date = int(_date_variants(start_date)["ymd"])
+        finish_date = int(_date_variants(end_date)["ymd"])
+        day_period = self._get_day_period_value()
 
         def _query() -> List[Dict[str, Any]]:
             self._ensure_login()
             assert self._market_data is not None
 
             candidates = [
-                {"kwargs": {"code": symbol, "start_date": start_variants["iso"], "end_date": end_variants["iso"], "period": "day"}},
-                {"kwargs": {"symbol": symbol, "start_date": start_variants["iso"], "end_date": end_variants["iso"], "period": "day"}},
-                {"kwargs": {"stock_code": symbol, "start_date": start_variants["iso"], "end_date": end_variants["iso"], "period": "day"}},
-                {"kwargs": {"code_list": [symbol], "start_date": start_variants["iso"], "end_date": end_variants["iso"], "period": "day"}},
-                {"kwargs": {"code": symbol, "start_time": start_variants["ts"], "end_time": end_variants["ts"], "period": "day"}},
-                {"kwargs": {"symbol": symbol, "start_time": start_variants["ts"], "end_time": end_variants["ts"], "period": "day"}},
-                {"kwargs": {"code_list": [symbol], "start_time": start_variants["ts"], "end_time": end_variants["ts"], "period": "day"}},
-                {"kwargs": {"code": symbol, "start_date": start_variants["ymd"], "end_date": end_variants["ymd"], "period": "day"}},
+                {"kwargs": {"code_list": [symbol], "begin_date": begin_date, "end_date": finish_date, "period": day_period}},
+                {"args": ([symbol],), "kwargs": {"begin_date": begin_date, "end_date": finish_date, "period": day_period}},
+                {"args": ([symbol], begin_date, finish_date), "kwargs": {"period": day_period}},
+                {"args": ([symbol], begin_date, finish_date, day_period)},
+                {"kwargs": {"code_list": [symbol], "begin_date": begin_date, "end_date": finish_date}},
+                {"kwargs": {"code_list": [symbol], "start_date": begin_date, "end_date": finish_date, "period": day_period}},
+                {"kwargs": {"code": symbol, "begin_date": begin_date, "end_date": finish_date, "period": day_period}},
+                {"kwargs": {"symbol": symbol, "begin_date": begin_date, "end_date": finish_date, "period": day_period}},
+                {"kwargs": {"stock_code": symbol, "begin_date": begin_date, "end_date": finish_date, "period": day_period}},
             ]
             payload = self._invoke_candidates(self._market_data, "query_kline", candidates)
             records = _records_from_payload(payload, stock_code=symbol)

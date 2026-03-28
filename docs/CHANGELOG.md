@@ -97,6 +97,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - 🧹 **Bot trailing whitespace cleanup** — removed W291/W293 whitespace issues across `bot/handler.py`, `bot/dispatcher.py`, `bot/commands/base.py`, `bot/platforms/feishu_stream.py`, `bot/platforms/dingtalk_stream.py`
 - 🐛 **Dispatcher `_parse_intent_via_llm` safety** — replaced fragile `'raw' in dir()` with `'raw' in locals()` for undefined-variable guard in `JSONDecodeError` handler
 - 🐛 **Galaxy bridge circular-import fix** — moved shared data-provider exceptions into a leaf module so NAS/Docker startup no longer crashes when `data_provider.base -> fundamental_adapter -> galaxy_bridge` is initialized under bridge mode
+- 🐛 **Galaxy bridge `query_kline` doc-aligned signature** — the bridge now follows the AmazingData manual for historical K lines (`MarketData(calendar)` with `query_kline(code_list, begin_date, end_date, period)`), replacing the earlier guess-based parameter combination that could fail on Aliyun with signature mismatch
 - 🐛 **筹码结构 LLM 未填写时兜底补全** (#589) — DeepSeek 等模型未正确填写 `chip_structure` 时，自动用数据源已获取的筹码数据补全，保证各模型展示一致；普通分析与 Agent 模式均生效
 - 🐛 **历史报告狙击点位显示原始文本** (#452) — 历史详情页现优先展示 `raw_result.dashboard.battle_plan.sniper_points` 中的原始字符串，避免 `analysis_history` 数值列把区间、说明文字或复杂点位压缩成单个数字；保留原有数值列作为回退
 - 🐛 **Session prefix collision** — user ID `123` could see sessions of user `1234` via `startswith`; fixed with colon delimiter in session_id format
